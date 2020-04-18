@@ -1,12 +1,12 @@
 use std::{
-//    io::BufReader,
-//    fs::File,
+    io::self,
+    io::prelude::*,
     path::Path,
 };
 
-type Result<T> = anyhow::Result<T>;
+use rlox::Status;
 
-fn main() -> Result<()> {
+fn main() -> rlox::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     let exit_status = match args.as_slice() {
@@ -21,12 +21,27 @@ fn main() -> Result<()> {
     std::process::exit(exit_status);
 }
 
-fn run_prompt() -> Result<i32> {
-    println!("Run prompt");
-    Ok(0)
+fn run_prompt() -> rlox::Result<i32> {
+    let mut input = String::new();
+    let stdin = io::stdin();
+    let mut input_stream = stdin.lock();
+
+    println!("RLox 1.0 (interpreted mode)");
+    loop {
+        print!("> ");
+        io::stdout().flush()?;
+        input_stream.read_line(&mut input)?;
+        if let Status::Terminated(exit_status) = rlox::run(&input)? {
+            return Ok(exit_status)
+        }
+    }
 }
 
-fn run_file<P: AsRef<Path>>(file: P) -> Result<i32> {
-    println!("Run script: {:?}", file.as_ref());
-    Ok(0)
+fn run_file<P: AsRef<Path>>(file: P) -> rlox::Result<i32> {
+    let script = std::fs::read_to_string(file)?;
+    if let Status::Terminated(exit_status) = rlox::run(&script)? {
+        Ok(exit_status)
+    } else {
+        Ok(0)
+    }
 }
