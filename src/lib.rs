@@ -1,5 +1,8 @@
+#![allow(dead_code)]
+
 #[cfg(test)]
 mod linkedlist;
+mod scanner;
 
 use std::{
     io::self,
@@ -11,34 +14,26 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub struct Lox<'r> {
-    pub report: &'r dyn Fn(&Location, &str),
-}
+pub struct Lox;
 
-impl<'r> Lox<'r> {
-    pub fn new() -> Lox<'r> { Lox { report: &print_now } }
+impl Lox {
+    pub fn new() -> Lox {
+        Lox {}
+    }
 
-    pub fn run(&self, source: &str) -> Result<Status> {
+    pub fn run(&mut self, source: &str) -> Result<Status> {
         let tokens = scanner::tokens(source);
 
         for token in tokens {
             println!("{:?}", token);
         }
 
-        let loc = Location {
-            file: Path::new("test.lox"),
-            line: 102,
-            column: 23,
-        };
-        self.error(&loc, "This is a test error");
-
         Ok(Status::AwaitingInput)
     }
+}
 
-    fn error(&self, location: &Location, message: &str) {
-        (self.report)(location, message);
-    }
-
+fn error(location: &Location, message: &str) {
+    print_now(location, message);
 }
 
 #[allow(dead_code)]
@@ -69,13 +64,4 @@ impl Display for Location<'_> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{:?}:{}:{}", self.file, self.line, self.column)
     }
-}
-
-mod scanner {
-    pub fn tokens(_source: &str) -> Vec<Token> {
-        Vec::new()
-    }
-
-    #[derive(Clone, Copy, Debug)]
-    pub struct Token;
 }

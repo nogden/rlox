@@ -25,7 +25,7 @@ fn run_prompt() -> rlox::Result<i32> {
     let mut input = String::new();
     let stdin = io::stdin();
     let mut input_stream = stdin.lock();
-    let lox = rlox::Lox::new();
+    let mut lox = rlox::Lox::new();
 
     println!("RLox 1.0 (interpreted mode)");
     loop {
@@ -40,7 +40,7 @@ fn run_prompt() -> rlox::Result<i32> {
 
 fn run_file<P: AsRef<Path>>(file: P) -> rlox::Result<i32> {
     let script = std::fs::read_to_string(file)?;
-    let lox = rlox::Lox::new();
+    let mut lox = rlox::Lox::new();
 
     if let Status::Terminated(exit_status) = lox.run(&script)? {
         Ok(exit_status)
