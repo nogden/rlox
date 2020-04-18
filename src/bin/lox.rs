@@ -25,13 +25,14 @@ fn run_prompt() -> rlox::Result<i32> {
     let mut input = String::new();
     let stdin = io::stdin();
     let mut input_stream = stdin.lock();
+    let lox = rlox::Lox::new();
 
     println!("RLox 1.0 (interpreted mode)");
     loop {
         print!("> ");
         io::stdout().flush()?;
         input_stream.read_line(&mut input)?;
-        if let Status::Terminated(exit_status) = rlox::run(&input)? {
+        if let Status::Terminated(exit_status) = lox.run(&input)? {
             return Ok(exit_status)
         }
     }
@@ -39,7 +40,9 @@ fn run_prompt() -> rlox::Result<i32> {
 
 fn run_file<P: AsRef<Path>>(file: P) -> rlox::Result<i32> {
     let script = std::fs::read_to_string(file)?;
-    if let Status::Terminated(exit_status) = rlox::run(&script)? {
+    let lox = rlox::Lox::new();
+
+    if let Status::Terminated(exit_status) = lox.run(&script)? {
         Ok(exit_status)
     } else {
         Ok(0)
