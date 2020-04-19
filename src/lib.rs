@@ -21,7 +21,7 @@ impl Lox {
         Lox {}
     }
 
-    pub fn run(&mut self, source: &str) -> Result<Status> {
+    pub fn run(&mut self, _file: &Path, source: &str) -> Result<Status> {
         let tokens = scanner::tokens(source);
 
         for token in tokens {
@@ -53,7 +53,7 @@ pub enum Status {
     Terminated(i32),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Location<'p> {
     file: &'p Path,
     line: usize,

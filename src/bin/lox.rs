@@ -26,23 +26,24 @@ fn run_prompt() -> rlox::Result<i32> {
     let stdin = io::stdin();
     let mut input_stream = stdin.lock();
     let mut lox = rlox::Lox::new();
+    let path = Path::new("(no source file)");
 
     println!("RLox 1.0 (interpreted mode)");
     loop {
         print!("> ");
         io::stdout().flush()?;
         input_stream.read_line(&mut input)?;
-        if let Status::Terminated(exit_status) = lox.run(&input)? {
+        if let Status::Terminated(exit_status) = lox.run(&path, &input)? {
             return Ok(exit_status)
         }
     }
 }
 
 fn run_file<P: AsRef<Path>>(file: P) -> rlox::Result<i32> {
-    let script = std::fs::read_to_string(file)?;
+    let script = std::fs::read_to_string(file.as_ref())?;
     let mut lox = rlox::Lox::new();
 
-    if let Status::Terminated(exit_status) = lox.run(&script)? {
+    if let Status::Terminated(exit_status) = lox.run(file.as_ref(), &script)? {
         Ok(exit_status)
     } else {
         Ok(0)
