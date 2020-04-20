@@ -36,6 +36,7 @@ fn run_prompt() -> rlox::Result<i32> {
         if let Status::Terminated(exit_status) = lox.run(&path, &input)? {
             return Ok(exit_status)
         }
+        input.clear();
     }
 }
 
