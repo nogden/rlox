@@ -2,10 +2,11 @@ use std::{
     fmt,
     str::CharIndices,
     iter,
+    ops::RangeInclusive,
 };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum TokenType {
+enum TokenType<'s> {
     // Single character tokens
     LeftParen, RightParen, LeftBrace, RightBrace,
     Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
@@ -16,7 +17,7 @@ enum TokenType {
     Less, LessEqual,
 
     // Literals
-    Identifier, String, Number,
+    Identifier, String(&'s str), Number(f64),
 
     // Keywords
     And, Class, Else, False, Fun, For, If, Nil, Or,
@@ -27,13 +28,13 @@ enum TokenType {
 
 #[derive(Clone, Debug)]
 pub struct Token<'s> {
-    token_type: TokenType,
+    token_type: TokenType<'s>,
     lexeme: &'s str,
     line: usize,
 }
 
 impl<'s> Token<'s> {
-    fn new(token_type: TokenType, lexeme: &'s str, line: usize) -> Token<'s> {
+    fn new(token_type: TokenType<'s>, lexeme: &'s str, line: usize) -> Token<'s> {
         Token {token_type, lexeme, line}
     }
 }
@@ -71,18 +72,18 @@ impl<'s> Tokens<'s> {
     }
 
     fn found(
-        &self, token: TokenType, index: usize, length: usize
+        &self, token: TokenType<'s>, location: RangeInclusive<usize>
     ) -> Option<Token<'s>> {
         Some(Token {
             token_type: token,
-            lexeme: &self.source_code[index..index+length],
+            lexeme: &self.source_code[location],
             line: self.current_line
         })
     }
 
     fn followed_by(&mut self, character: char) -> bool {
         match self.chars.peek() {
-            Some((_i, c)) if c == &character => {
+            Some((_, c)) if c == &character => {
                 self.advance();
                 true
             },
@@ -101,6 +102,7 @@ impl<'s> Tokens<'s> {
     }
 
     fn string(&mut self) -> Option<Token<'s>> {
+        use TokenType::String;
         let start_line = self.current_line;
 
         while let Some((index, character)) = self.chars.peek() {
@@ -109,10 +111,8 @@ impl<'s> Tokens<'s> {
                 '\n' => self.current_line += 1,
                 '"' => {
                     self.advance();
-                    let string_length = index - self.token_start;
-                    return self.found(
-                        TokenType::String, self.token_start, string_length
-                    );
+                    let string = &self.source_code[self.token_start..=index];
+                    return self.found(String(string), self.token_start..=index);
                 },
                 _ => { /* Include in string */ }
             }
@@ -121,6 +121,38 @@ impl<'s> Tokens<'s> {
 
         eprintln!("Unterminated string starting on line {}", start_line);
         None
+    }
+
+    fn number(&mut self, start_index: usize) -> Option<Token<'s>> {
+        use TokenType::Number;
+        let mut index = start_index;
+
+        while let Some((i, '0'..='9')) = self.chars.peek() {
+            index = *i;
+            self.advance()
+        }
+
+        let mut has_fractional_part = false;
+
+        // We only have 1 character of read-ahead so this dance is needed
+        let mut iter = self.chars.clone();
+        if let Some((_, '.')) = iter.next() {
+            if let Some((_, '0'..='9')) = iter.next() {
+                has_fractional_part = true;
+            }
+        }
+
+        if has_fractional_part {
+            self.advance();  // Consume decimal point
+
+            while let Some((i, '0'..='9')) = self.chars.peek() {
+                index = *i;
+                self.advance();
+            }
+        }
+
+        let number: f64 = self.source_code[start_index..=index].parse().unwrap();
+        self.found(Number(number), start_index..=index)
     }
 }
 
@@ -132,46 +164,50 @@ impl<'s> Iterator for Tokens<'s> {
 
         while let Some((index, character)) = self.chars.next() {
             match character {
-                '{' => return self.found(LeftBrace, index, 1),
-                '}' => return self.found(RightBrace, index, 1),
-                '(' => return self.found(LeftParen, index, 1),
-                ')' => return self.found(RightParen, index, 1),
-                ',' => return self.found(Comma, index, 1),
-                '.' => return self.found(Dot, index, 1),
-                '-' => return self.found(Minus, index, 1),
-                '+' => return self.found(Plus, index, 1),
-                ';' => return self.found(Semicolon, index, 1),
-                '*' => return self.found(Star, index, 1),
+                '{' => return self.found(LeftBrace, index..=index),
+                '}' => return self.found(RightBrace, index..=index),
+                '(' => return self.found(LeftParen, index..=index),
+                ')' => return self.found(RightParen, index..=index),
+                ',' => return self.found(Comma, index..=index),
+                '.' => return self.found(Dot, index..=index),
+                '-' => return self.found(Minus, index..=index),
+                '+' => return self.found(Plus, index..=index),
+                ';' => return self.found(Semicolon, index..=index),
+                '*' => return self.found(Star, index..=index),
                 '!' => if self.followed_by('=') {
-                    return self.found(BangEqual, index, 2)
+                    return self.found(BangEqual, index..=index)
                 } else {
-                    return self.found(Bang, index, 1)
+                    return self.found(Bang, index..=index)
                 },
                 '=' => if self.followed_by('=') {
-                    return self.found(EqualEqual, index, 2)
+                    return self.found(EqualEqual, index..=index + 1)
                 } else {
-                    return self.found(Equal, index, 1)
+                    return self.found(Equal, index..=index)
                 },
                 '<' => if self.followed_by('=') {
-                    return self.found(LessEqual, index, 2)
+                    return self.found(LessEqual, index..=index + 1)
                 } else {
-                    return self.found(Less, index, 1)
+                    return self.found(Less, index..=index)
                 },
                 '>' => if self.followed_by('=') {
-                    return self.found(GreaterEqual, index, 2)
+                    return self.found(GreaterEqual, index..=index + 1)
                 } else {
-                    return self.found(Greater, index, 1)
+                    return self.found(Greater, index..=index)
                 },
                 '/' => if self.followed_by('/') {
                     self.comment()
                 } else {
-                    return self.found(Slash, index, 1)
+                    return self.found(Slash, index..=index)
                 },
                 ' ' | '\r' | '\t' => { /* Ignore whitespace */ },
                 '\n' => self.current_line += 1,
                 '"' => {
                     self.token_start = index + 1;  // Don't include the '"'
                     return self.string();
+                },
+                '0'..='9' => {
+                    self.token_start = index;
+                    return self.number(index)
                 }
 
                 // TODO(nick): Collect errors for future processing.
