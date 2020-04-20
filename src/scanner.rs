@@ -53,7 +53,6 @@ impl<'s> SourceCode<'s> {
         Tokens {
             source_code: self.0,
             chars: self.0.char_indices().peekable(),
-            token_start: 0,
             current_line: 1
         }
     }
@@ -62,7 +61,6 @@ impl<'s> SourceCode<'s> {
 struct Tokens<'s> {
     source_code: &'s str,
     chars: iter::Peekable<CharIndices<'s>>,
-    token_start: usize,
     current_line: usize,
 }
 
@@ -101,22 +99,23 @@ impl<'s> Tokens<'s> {
         }
     }
 
-    fn string(&mut self) -> Option<Token<'s>> {
+    fn string(&mut self, start_index: usize) -> Option<Token<'s>> {
         use TokenType::String;
         let start_line = self.current_line;
+        let mut end_index = start_index;
 
         while let Some((index, character)) = self.chars.peek() {
-            let index = *index;
             match character {
                 '\n' => self.current_line += 1,
                 '"' => {
                     self.advance();
-                    let string = &self.source_code[self.token_start..=index];
-                    return self.found(String(string), self.token_start..=index);
+                    let string = &self.source_code[start_index..=end_index];
+                    return self.found(String(string), start_index..=end_index);
                 },
                 _ => { /* Include in string */ }
             }
-            self.advance();
+            end_index = *index;
+            self.advance()
         }
 
         eprintln!("Unterminated string starting on line {}", start_line);
@@ -201,14 +200,8 @@ impl<'s> Iterator for Tokens<'s> {
                 },
                 ' ' | '\r' | '\t' => { /* Ignore whitespace */ },
                 '\n' => self.current_line += 1,
-                '"' => {
-                    self.token_start = index + 1;  // Don't include the '"'
-                    return self.string();
-                },
-                '0'..='9' => {
-                    self.token_start = index;
-                    return self.number(index)
-                }
+                '"' => return self.string(index + 1),  // Don't include the '"'
+                '0'..='9' => return self.number(index),
 
                 // TODO(nick): Collect errors for future processing.
                 _ => eprintln!(
