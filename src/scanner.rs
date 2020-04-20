@@ -51,7 +51,7 @@ impl<'s> SourceCode<'s> {
     fn tokens(&self) -> Tokens<'s> {
         Tokens {
             source_code: self.0,
-            chars: self.0.char_indices(),
+            chars: self.0.char_indices().peekable(),
             token_start: 0,
             current_line: 1
         }
@@ -60,9 +60,41 @@ impl<'s> SourceCode<'s> {
 
 struct Tokens<'s> {
     source_code: &'s str,
-    chars: CharIndices<'s>,
+    chars: iter::Peekable<CharIndices<'s>>,
     token_start: usize,
     current_line: usize,
+}
+
+impl<'s> Tokens<'s> {
+    fn found(
+        &self, token: TokenType, index: usize, length: usize
+    ) -> Option<Token<'s>> {
+        Some(Token {
+            token_type: token,
+            lexeme: &self.source_code[index..index+length],
+            line: self.current_line
+        })
+    }
+
+    fn followed_by(&mut self, character: char) -> bool {
+        match self.chars.peek() {
+            Some((_i, c)) if c == &character => {
+                let _ = self.chars.next();
+                true
+            },
+
+            _ => false
+        }
+    }
+
+    fn consume_line(&mut self) {
+        while let Some((_, character)) = self.chars.peek() {
+            if character == &'\n' {
+                break // Don't consume the newline, it will update current_line
+            }
+            let _ = self.chars.next();
+        }
+    }
 }
 
 impl<'s> Iterator for Tokens<'s> {
@@ -73,12 +105,46 @@ impl<'s> Iterator for Tokens<'s> {
 
         while let Some((index, character)) = self.chars.next() {
             match character {
-                '{' => return Some(Token {
-                    token_type: LeftBrace,
-                    lexeme: &self.source_code[index..index+1],
-                    line: self.current_line
-                }),
+                '{' => return self.found(LeftBrace, index, 1),
+                '}' => return self.found(RightBrace, index, 1),
+                '(' => return self.found(LeftParen, index, 1),
+                ')' => return self.found(RightParen, index, 1),
+                ',' => return self.found(Comma, index, 1),
+                '.' => return self.found(Dot, index, 1),
+                '-' => return self.found(Minus, index, 1),
+                '+' => return self.found(Plus, index, 1),
+                ';' => return self.found(Semicolon, index, 1),
+                '*' => return self.found(Star, index, 1),
+                '!' => if self.followed_by('=') {
+                    return self.found(BangEqual, index, 2)
+                } else {
+                    return self.found(Bang, index, 1)
+                },
+                '=' => if self.followed_by('=') {
+                    return self.found(EqualEqual, index, 2)
+                } else {
+                    return self.found(Equal, index, 1)
+                },
+                '<' => if self.followed_by('=') {
+                    return self.found(LessEqual, index, 2)
+                } else {
+                    return self.found(Less, index, 1)
+                },
+                '>' => if self.followed_by('=') {
+                    return self.found(GreaterEqual, index, 2)
+                } else {
+                    return self.found(Greater, index, 1)
+                },
+                '/' => if self.followed_by('/') {
+                    self.consume_line()
+                } else {
+                    return self.found(Slash, index, 1)
+                },
+                ' ' | '\r' | '\t' => { /* Ignore whitespace */ },
+                '\n' => self.current_line += 1,
 
+
+                // TODO(nick): Collect errors for future processing.
                 _ => eprintln!(
                     "Unexpected character: {} on line {}",
                     character, self.current_line
