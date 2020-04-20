@@ -66,6 +66,10 @@ struct Tokens<'s> {
 }
 
 impl<'s> Tokens<'s> {
+    fn advance(&mut self) {
+        let _ = self.chars.next();
+    }
+
     fn found(
         &self, token: TokenType, index: usize, length: usize
     ) -> Option<Token<'s>> {
@@ -79,7 +83,7 @@ impl<'s> Tokens<'s> {
     fn followed_by(&mut self, character: char) -> bool {
         match self.chars.peek() {
             Some((_i, c)) if c == &character => {
-                let _ = self.chars.next();
+                self.advance();
                 true
             },
 
@@ -87,13 +91,36 @@ impl<'s> Tokens<'s> {
         }
     }
 
-    fn consume_line(&mut self) {
+    fn comment(&mut self) {
         while let Some((_, character)) = self.chars.peek() {
             if character == &'\n' {
                 break // Don't consume the newline, it will update current_line
             }
-            let _ = self.chars.next();
+            self.advance();
         }
+    }
+
+    fn string(&mut self) -> Option<Token<'s>> {
+        let start_line = self.current_line;
+
+        while let Some((index, character)) = self.chars.peek() {
+            let index = *index;
+            match character {
+                '\n' => self.current_line += 1,
+                '"' => {
+                    self.advance();
+                    let string_length = index - self.token_start;
+                    return self.found(
+                        TokenType::String, self.token_start, string_length
+                    );
+                },
+                _ => { /* Include in string */ }
+            }
+            self.advance();
+        }
+
+        eprintln!("Unterminated string starting on line {}", start_line);
+        None
     }
 }
 
@@ -136,13 +163,16 @@ impl<'s> Iterator for Tokens<'s> {
                     return self.found(Greater, index, 1)
                 },
                 '/' => if self.followed_by('/') {
-                    self.consume_line()
+                    self.comment()
                 } else {
                     return self.found(Slash, index, 1)
                 },
                 ' ' | '\r' | '\t' => { /* Ignore whitespace */ },
                 '\n' => self.current_line += 1,
-
+                '"' => {
+                    self.token_start = index + 1;  // Don't include the '"'
+                    return self.string();
+                }
 
                 // TODO(nick): Collect errors for future processing.
                 _ => eprintln!(
