@@ -22,7 +22,7 @@ impl Lox {
     }
 
     pub fn run(&mut self, _file: &Path, source: &str) -> Result<Status> {
-        let tokens = scanner::tokens(source);
+        let tokens: Vec<_> = scanner::SourceCode(source).tokens().collect();
 
         for token in tokens {
             println!("{:?}", token);

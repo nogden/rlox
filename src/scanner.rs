@@ -1,7 +1,6 @@
 use std::{
-    fmt,
+    fmt, iter,
     str::CharIndices,
-    iter,
     ops::RangeInclusive,
 };
 
@@ -33,12 +32,6 @@ pub struct Token<'s> {
     line: usize,
 }
 
-impl<'s> Token<'s> {
-    fn new(token_type: TokenType<'s>, lexeme: &'s str, line: usize) -> Token<'s> {
-        Token {token_type, lexeme, line}
-    }
-}
-
 impl<'s> fmt::Display for Token<'s> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?} {} tbd", self.token_type, self.lexeme)
@@ -46,22 +39,24 @@ impl<'s> fmt::Display for Token<'s> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-struct SourceCode<'s>(&'s str);
+pub struct SourceCode<'s>(pub &'s str);
 
 impl<'s> SourceCode<'s> {
-    fn tokens(&self) -> Tokens<'s> {
+    pub fn tokens(&self) -> Tokens<'s> {
         Tokens {
             source_code: self.0,
             chars: self.0.char_indices().peekable(),
-            current_line: 1
+            current_line: 1,
+            ended: false
         }
     }
 }
 
-struct Tokens<'s> {
+pub struct Tokens<'s> {
     source_code: &'s str,
     chars: iter::Peekable<CharIndices<'s>>,
     current_line: usize,
+    ended: bool,
 }
 
 impl<'s> Tokens<'s> {
@@ -256,17 +251,13 @@ impl<'s> Iterator for Tokens<'s> {
             };
         }
 
-        None // End of input
+        // Eof isn't really a thing, we add it before terminating iteration
+        if ! self.ended {
+            self.ended = true;
+            let buffer_end = self.source_code.len();
+            self.found(Eof, buffer_end..=buffer_end)
+        } else {
+            None
+        }
     }
-}
-
-pub fn tokens<'s>(source: &'s str) -> Vec<Token<'s>> {
-    let source_code = SourceCode(source);
-    let eof = iter::once(Token {
-        token_type: TokenType::Eof,
-        lexeme: &source[source.len()..],
-        line: source.lines().count(),
-    });
-
-    source_code.tokens().chain(eof).collect()
 }
