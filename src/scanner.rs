@@ -17,7 +17,7 @@ enum TokenType<'s> {
     Less, LessEqual,
 
     // Literals
-    Identifier, String(&'s str), Number(f64),
+    Identifier(&'s str), String(&'s str), Number(f64),
 
     // Keywords
     And, Class, Else, False, Fun, For, If, Nil, Or,
@@ -153,6 +153,49 @@ impl<'s> Tokens<'s> {
         let number: f64 = self.source_code[start_index..=index].parse().unwrap();
         self.found(Number(number), start_index..=index)
     }
+
+    fn identifier(&mut self, start_index: usize) -> Option<Token<'s>> {
+        use TokenType::Identifier;
+        let mut index = start_index;
+
+        while let Some((i, c)) = self.chars.peek() {
+            if !c.is_alphanumeric() && c != &'_' {
+                break
+            }
+            index = *i;
+            self.advance()
+        }
+
+        let identifier = &self.source_code[start_index..=index];
+        if let Some(token_type) = self.keyword(identifier) {
+            self.found(token_type, start_index..=index)
+        } else {
+            self.found(Identifier(identifier), start_index..=index)
+        }
+    }
+
+    fn keyword(&self, identifier: &str) -> Option<TokenType<'s>> {
+        use TokenType::*;
+        match identifier {
+            "and"    => Some(And),
+            "class"  => Some(Class),
+            "else"   => Some(Else),
+            "false"  => Some(False),
+            "fun"    => Some(Fun),
+            "for"    => Some(For),
+            "if"     => Some(If),
+            "nil"    => Some(Nil),
+            "or"     => Some(Or),
+            "print"  => Some(Print),
+            "return" => Some(Return),
+            "super"  => Some(Super),
+            "this"   => Some(This),
+            "true"   => Some(True),
+            "var"    => Some(Var),
+            "while"  => Some(While),
+            _        => None,
+        }
+    }
 }
 
 impl<'s> Iterator for Tokens<'s> {
@@ -202,6 +245,8 @@ impl<'s> Iterator for Tokens<'s> {
                 '\n' => self.current_line += 1,
                 '"' => return self.string(index + 1),  // Don't include the '"'
                 '0'..='9' => return self.number(index),
+                c if c == '_' || c.is_alphabetic()
+                    => return self.identifier(index),
 
                 // TODO(nick): Collect errors for future processing.
                 _ => eprintln!(
