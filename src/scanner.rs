@@ -1,7 +1,7 @@
 use std::{
     fmt, iter,
+    slice::SliceIndex,
     str::CharIndices,
-    ops::RangeInclusive,
 };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -65,7 +65,7 @@ impl<'s> Tokens<'s> {
     }
 
     fn found(
-        &self, token: TokenType<'s>, location: RangeInclusive<usize>
+        &self, token: TokenType<'s>, location: impl SliceIndex<str, Output=str>
     ) -> Option<Token<'s>> {
         Some(Token {
             token_type: token,
@@ -255,7 +255,7 @@ impl<'s> Iterator for Tokens<'s> {
         if ! self.ended {
             self.ended = true;
             let buffer_end = self.source_code.len();
-            self.found(Eof, buffer_end..=buffer_end)
+            self.found(Eof, buffer_end..buffer_end)
         } else {
             None
         }
