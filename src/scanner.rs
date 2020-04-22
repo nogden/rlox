@@ -5,7 +5,7 @@ use std::{
 };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum TokenType<'s> {
+pub enum TokenType<'s> {
     // Single character tokens
     LeftParen, RightParen, LeftBrace, RightBrace,
     Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
@@ -27,14 +27,14 @@ enum TokenType<'s> {
 
 #[derive(Clone, Debug)]
 pub struct Token<'s> {
-    token_type: TokenType<'s>,
+    pub token_type: TokenType<'s>,
     lexeme: &'s str,
     line: usize,
 }
 
 impl<'s> fmt::Display for Token<'s> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?} {} tbd", self.token_type, self.lexeme)
+        write!(f, "{}", self.lexeme)
     }
 }
 

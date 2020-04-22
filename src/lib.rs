@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod linkedlist;
 mod scanner;
+mod parser;
 
 use std::{
     io::self,
@@ -22,11 +23,15 @@ impl Lox {
     }
 
     pub fn run(&mut self, _file: &Path, source: &str) -> Result<Status> {
-        let tokens: Vec<_> = scanner::SourceCode(source).tokens().collect();
+        // TODO(nick): Pass error reporter to source code.
+        let tokens = scanner::SourceCode(source).tokens();
 
         for token in tokens {
             println!("{:?}", token);
         }
+
+        // use ast::Expression::*;
+        // println!("{}", Binary(&Unary(&tokens[0], &Literal(&tokens[1])), &tokens[2], &Grouping(&Literal(&tokens[4]))));
 
         Ok(Status::AwaitingInput)
     }
