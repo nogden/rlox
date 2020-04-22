@@ -22,9 +22,10 @@ impl Lox {
         Lox {}
     }
 
-    pub fn run(&mut self, _file: &Path, source: &str) -> Result<Status> {
-        // TODO(nick): Pass error reporter to source code.
-        let tokens = scanner::SourceCode(source).tokens();
+    pub fn run(&mut self, _file: &Path, source_code: &str) -> Result<Status> {
+        use scanner::Scanner;
+        // TODO(nick): Pass error reporter for error handling
+        let tokens = source_code.tokens();
 
         for token in tokens {
             println!("{:?}", token);

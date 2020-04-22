@@ -4,6 +4,10 @@ use std::{
     str::CharIndices,
 };
 
+pub trait Scanner {
+    fn tokens(&self) -> Tokens;
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum TokenType<'s> {
     // Single character tokens
@@ -38,20 +42,18 @@ impl<'s> fmt::Display for Token<'s> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct SourceCode<'s>(pub &'s str);
-
-impl<'s> SourceCode<'s> {
-    pub fn tokens(&self) -> Tokens<'s> {
+impl Scanner for str {
+    fn tokens(&self) -> Tokens {
         Tokens {
-            source_code: self.0,
-            chars: self.0.char_indices().peekable(),
+            source_code: self,
+            chars: self.char_indices().peekable(),
             current_line: 1,
             ended: false
         }
     }
 }
 
+#[derive(Clone)]
 pub struct Tokens<'s> {
     source_code: &'s str,
     chars: iter::Peekable<CharIndices<'s>>,
