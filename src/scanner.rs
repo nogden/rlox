@@ -29,7 +29,7 @@ pub enum TokenType<'s> {
     Eof,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Token<'s> {
     pub token_type: TokenType<'s>,
     lexeme: &'s str,

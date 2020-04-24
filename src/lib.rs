@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![feature(or_patterns)]
 
 #[cfg(test)]
 mod linkedlist;
@@ -27,11 +28,13 @@ impl Lox {
         // TODO(nick): Pass error reporter for error handling
         let tokens = source_code.tokens();
 
-        for token in tokens {
+        for token in tokens.clone() {
             println!("{:?}", token);
         }
 
-        // use ast::Expression::*;
+        let ast = parser::parse(tokens)?;
+        println!("{:?}", ast);
+
         // println!("{}", Binary(&Unary(&tokens[0], &Literal(&tokens[1])), &tokens[2], &Grouping(&Literal(&tokens[4]))));
 
         Ok(Status::AwaitingInput)
