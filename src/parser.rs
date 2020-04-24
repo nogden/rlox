@@ -3,8 +3,8 @@ use std::{
 };
 
 use crate::{
-    Result,
-    scanner::{Token, TokenType},
+    LoxResult,
+    scanner::{Token, TokenType, TokenType::*}
 };
 
 use Expression::*;
@@ -14,7 +14,7 @@ pub struct Ast;
 
 pub fn parse<'s, 'i>(
     tokens: impl IntoIterator<Item = Token<'s>> + 'i
-) -> Result<Ast> {
+) -> LoxResult<Ast> {
     let mut parser = Parser {
         tokens: tokens.into_iter().peekable(),
         nodes: Vec::new()
@@ -29,11 +29,24 @@ struct Parser<'s, I: Iterator<Item = Token<'s>>> {
 }
 
 impl<'s, I: Iterator<Item = Token<'s>>> Parser<'s, I> {
-    fn parse(&mut self) -> Result<Ast> {
+    fn parse(&mut self) -> LoxResult<Ast> {
         Ok(Ast)
     }
 
-    fn add(&mut self, expression: Expression<'s>) -> ExprIndex {
+    fn advance(&mut self) { let _ = self.tokens.next(); }
+
+    fn consume(&mut self, expected_token: TokenType) -> Result<(), Token<'s>> {
+        match self.tokens.peek() {
+            Some(Token { token_type: t, .. }) if *t == expected_token
+                => Ok(self.advance()),
+
+            Some(token) => Err(*token),
+
+            None => panic!("Ran out of tokens to parse (should have hit Eof)")
+        }
+    }
+
+    fn found(&mut self, expression: Expression<'s>) -> ExprIndex {
         let index = self.nodes.len();
         self.nodes.push(expression);
         index
@@ -42,7 +55,6 @@ impl<'s, I: Iterator<Item = Token<'s>>> Parser<'s, I> {
     fn expression(&mut self) -> ExprIndex { self.equality() }
 
     fn equality(&mut self) -> ExprIndex {
-        use TokenType::*;
         let mut expr = self.comparison();
 
         while let Some(token @ Token {
@@ -50,17 +62,92 @@ impl<'s, I: Iterator<Item = Token<'s>>> Parser<'s, I> {
         }) = self.tokens.peek() {
             let operator = *token;
             self.advance();
-            expr = self.add(Binary(expr, operator, self.comparison()))
+            let right = self.comparison();
+            expr = self.found(Binary(expr, operator, right))
         }
 
         expr
     }
 
-    fn comparison(&self) -> ExprIndex {
-        unimplemented!()
+    fn comparison(&mut self) -> ExprIndex {
+        let mut expr = self.addition();
+
+        while let Some(token @ Token {
+            token_type: Greater | GreaterEqual | Less | LessEqual, ..
+        }) = self.tokens.peek() {
+            let operator = *token;
+            self.advance();
+            let right = self.addition();
+            expr = self.found(Binary(expr, operator, right))
+        }
+
+        expr
     }
 
-    fn advance(&mut self) { let _ = self.tokens.next(); }
+    fn addition(&mut self) -> ExprIndex {
+        let mut expr = self.multiplication();
+
+        while let Some(token @ Token {
+            token_type: Minus | Plus, ..
+        }) = self.tokens.peek() {
+            let operator = *token;
+            self.advance();
+            let right = self.multiplication();
+            expr = self.found(Binary(expr, operator, right))
+        }
+
+        expr
+    }
+
+    fn multiplication(&mut self) -> ExprIndex {
+        let mut expr = self.unary();
+
+        while let Some(token @ Token {
+            token_type: Slash | Star, ..
+        }) = self.tokens.peek() {
+            let operator = *token;
+            self.advance();
+            let right = self.unary();
+            expr = self.found(Binary(expr, operator, right))
+        }
+
+        expr
+    }
+
+    fn unary(&mut self) -> ExprIndex {
+        if let Some(token @ Token {
+            token_type: Bang | Minus, ..
+        }) = self.tokens.peek() {
+            let operator = *token;
+            self.advance();
+            let right = self.unary();
+            return self.found(Unary(operator, right))
+        }
+
+        self.primary()
+    }
+
+    fn primary(&mut self) -> ExprIndex {
+        match self.tokens.peek() {
+            Some(token @ Token {
+                token_type: False | True | Nil | Number(_) | String(_), ..
+            }) => {
+                let literal = *token;
+                self.found(Literal(literal))
+            },
+
+            Some(_token @ Token {token_type: LeftParen, ..}) => {
+                self.advance();
+                let expr = self.expression();
+                if let Err(token) = self.consume(RightParen) {
+                    panic!("Expected ')' after expression, found {}", token)
+                }
+                self.found(Grouping(expr))
+            },
+
+            _ => unreachable!()
+        }
+    }
 }
 
 type ExprIndex = usize;  // A reference to another Expression in the Ast
@@ -88,8 +175,6 @@ impl<'s> fmt::Display for Expression<'s> {
                 write!(f, "(group {})", expression)
             },
             Literal(token) => {
-                use TokenType::*;
-
                 match token.token_type {
                     Number(n)     => write!(f, "{}", n),
                     String(s)     => write!(f, "{}", s),

@@ -14,7 +14,7 @@ use std::{
 
 use thiserror::Error;
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type LoxResult<T> = std::result::Result<T, Error>;
 
 pub struct Lox;
 
@@ -23,7 +23,7 @@ impl Lox {
         Lox {}
     }
 
-    pub fn run(&mut self, _file: &Path, source_code: &str) -> Result<Status> {
+    pub fn run(&mut self, _file: &Path, source_code: &str) -> LoxResult<Status> {
         use scanner::Scanner;
         // TODO(nick): Pass error reporter for error handling
         let tokens = source_code.tokens();

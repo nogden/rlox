@@ -4,9 +4,9 @@ use std::{
     path::Path,
 };
 
-use rlox::Status;
+use rlox::{Status, LoxResult};
 
-fn main() -> rlox::Result<()> {
+fn main() -> LoxResult<()> {
     let args: Vec<String> = std::env::args().collect();
 
     let exit_status = match args.as_slice() {
@@ -21,7 +21,7 @@ fn main() -> rlox::Result<()> {
     std::process::exit(exit_status);
 }
 
-fn run_prompt() -> rlox::Result<i32> {
+fn run_prompt() -> LoxResult<i32> {
     let mut input = String::new();
     let stdin = io::stdin();
     let mut input_stream = stdin.lock();
@@ -40,7 +40,7 @@ fn run_prompt() -> rlox::Result<i32> {
     }
 }
 
-fn run_file<P: AsRef<Path>>(file: P) -> rlox::Result<i32> {
+fn run_file<P: AsRef<Path>>(file: P) -> LoxResult<i32> {
     let script = std::fs::read_to_string(file.as_ref())?;
     let mut lox = rlox::Lox::new();
 
