@@ -5,21 +5,27 @@ use Expression::*;
 use thiserror::Error;
 
 #[derive(Clone, Debug)]
-pub struct Ast;
+pub struct Ast<'s> {
+    root: ExprIndex,
+    nodes: Vec<Expression<'s>>
+}
 
 #[derive(Error, Debug)]
 pub enum ParseError<'s> {
-    #[error("Missing delimiter")]
+    #[error("Missing delimiter to close {opening_delimiter}, found {location}")]
     UnmatchedDelimiter {
         location: Token<'s>,
         opening_delimiter: Token<'s>
-    }
+    },
+
+    #[error("Expected expression, got {0}")]
+    ExpectedExpression(Token<'s>)
 }
 
 pub fn parse<'s, 'i>(
     tokens: impl IntoIterator<Item = Token<'s>> + 'i
-) -> Result<Ast, Vec<ParseError<'s>>> {
-    let mut parser = Parser {
+) -> Result<Ast<'s>, Vec<ParseError<'s>>> {
+    let parser = Parser {
         tokens: tokens.into_iter().peekable(),
         nodes: Vec::new()
     };
@@ -33,8 +39,11 @@ struct Parser<'s, I: Iterator<Item = Token<'s>>> {
 }
 
 impl<'s, I: Iterator<Item = Token<'s>>> Parser<'s, I> {
-    fn parse(&mut self) -> Result<Ast, Vec<ParseError<'s>>> {
-        Ok(Ast)
+    fn parse(mut self) -> Result<Ast<'s>, Vec<ParseError<'s>>> {
+        match self.expression() {
+            Ok(root_index) => Ok(Ast { root: root_index, nodes: self.nodes }),
+            Err(error) => Err(vec![error])
+        }
     }
 
     fn advance(&mut self) { let _ = self.tokens.next(); }
@@ -70,100 +79,109 @@ impl<'s, I: Iterator<Item = Token<'s>>> Parser<'s, I> {
         index
     }
 
-    fn expression(&mut self) -> ExprIndex { self.equality() }
+    fn expression(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+        self.equality()
+    }
 
-    fn equality(&mut self) -> ExprIndex {
-        let mut expr = self.comparison();
+    fn equality(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+        let mut expr = self.comparison()?;
 
         while let Some(token @ Token {
             token_type: EqualEqual | BangEqual, ..
         }) = self.tokens.peek() {
             let operator = *token;
             self.advance();
-            let right = self.comparison();
+            let right = self.comparison()?;
             expr = self.found(Binary(expr, operator, right))
         }
 
-        expr
+        Ok(expr)
     }
 
-    fn comparison(&mut self) -> ExprIndex {
-        let mut expr = self.addition();
+    fn comparison(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+        let mut expr = self.addition()?;
 
         while let Some(token @ Token {
             token_type: Greater | GreaterEqual | Less | LessEqual, ..
         }) = self.tokens.peek() {
             let operator = *token;
             self.advance();
-            let right = self.addition();
+            let right = self.addition()?;
             expr = self.found(Binary(expr, operator, right))
         }
 
-        expr
+        Ok(expr)
     }
 
-    fn addition(&mut self) -> ExprIndex {
-        let mut expr = self.multiplication();
+    fn addition(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+        let mut expr = self.multiplication()?;
 
         while let Some(token @ Token {
             token_type: Minus | Plus, ..
         }) = self.tokens.peek() {
             let operator = *token;
             self.advance();
-            let right = self.multiplication();
+            let right = self.multiplication()?;
             expr = self.found(Binary(expr, operator, right))
         }
 
-        expr
+        Ok(expr)
     }
 
-    fn multiplication(&mut self) -> ExprIndex {
-        let mut expr = self.unary();
+    fn multiplication(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+        let mut expr = self.unary()?;
 
         while let Some(token @ Token {
             token_type: Slash | Star, ..
         }) = self.tokens.peek() {
             let operator = *token;
             self.advance();
-            let right = self.unary();
+            let right = self.unary()?;
             expr = self.found(Binary(expr, operator, right))
         }
 
-        expr
+        Ok(expr)
     }
 
-    fn unary(&mut self) -> ExprIndex {
+    fn unary(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         if let Some(token @ Token {
             token_type: Bang | Minus, ..
         }) = self.tokens.peek() {
             let operator = *token;
             self.advance();
-            let right = self.unary();
-            return self.found(Unary(operator, right))
+            let right = self.unary()?;
+            return Ok(self.found(Unary(operator, right)))
         }
 
         self.primary()
     }
 
-    fn primary(&mut self) -> ExprIndex {
+    fn primary(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         match self.tokens.peek() {
             Some(token @ Token {
                 token_type: False | True | Nil | Number(_) | String(_), ..
             }) => {
                 let literal = *token;
-                self.found(Literal(literal))
-            },
-
-            Some(_token @ Token {token_type: LeftParen, ..}) => {
                 self.advance();
-                let expr = self.expression();
-                if let Err(token) = self.consume(RightParen) {
-                    panic!("Expected ')' after expression, found {}", token)
-                }
-                self.found(Grouping(expr))
+                Ok(self.found(Literal(literal)))
             },
 
-            _ => unreachable!()
+            Some(token @ Token {token_type: LeftParen, ..}) => {
+                let opening_delimiter = *token;
+                self.advance();
+                let expr = self.expression()?;
+                if let Err(location) = self.consume(RightParen) {
+                    Err(ParseError::UnmatchedDelimiter {
+                        location, opening_delimiter
+                    })
+                } else {
+                    Ok(self.found(Grouping(expr)))
+                }
+            },
+
+            Some(token) => Err(ParseError::ExpectedExpression(*token)),
+
+            None => unreachable!("Should have terminated at Eof")
         }
     }
 }
