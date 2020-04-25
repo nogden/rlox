@@ -1,20 +1,24 @@
-use std::{
-    fmt, iter
-};
+use std::{fmt, iter};
 
-use crate::{
-    LoxResult,
-    scanner::{Token, TokenType, TokenType::*}
-};
-
+use crate::scanner::{Token, TokenType, TokenType::*};
 use Expression::*;
+use thiserror::Error;
 
 #[derive(Clone, Debug)]
 pub struct Ast;
 
+#[derive(Error, Debug)]
+pub enum ParseError<'s> {
+    #[error("Missing delimiter")]
+    UnmatchedDelimiter {
+        location: Token<'s>,
+        opening_delimiter: Token<'s>
+    }
+}
+
 pub fn parse<'s, 'i>(
     tokens: impl IntoIterator<Item = Token<'s>> + 'i
-) -> LoxResult<Ast> {
+) -> Result<Ast, Vec<ParseError<'s>>> {
     let mut parser = Parser {
         tokens: tokens.into_iter().peekable(),
         nodes: Vec::new()
@@ -29,7 +33,7 @@ struct Parser<'s, I: Iterator<Item = Token<'s>>> {
 }
 
 impl<'s, I: Iterator<Item = Token<'s>>> Parser<'s, I> {
-    fn parse(&mut self) -> LoxResult<Ast> {
+    fn parse(&mut self) -> Result<Ast, Vec<ParseError<'s>>> {
         Ok(Ast)
     }
 
@@ -43,6 +47,20 @@ impl<'s, I: Iterator<Item = Token<'s>>> Parser<'s, I> {
             Some(token) => Err(*token),
 
             None => panic!("Ran out of tokens to parse (should have hit Eof)")
+        }
+    }
+
+    fn synchronise(&mut self) {
+        while let Some(token) =  self.tokens.next() {
+            if let Semicolon = token.token_type {
+               return
+            }
+
+            if let Some(Token {
+                token_type: Class | Fun | Var | For | If | While | Print | Return, ..
+            }) = self.tokens.peek() {
+                return
+            }
         }
     }
 

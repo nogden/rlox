@@ -32,8 +32,10 @@ impl Lox {
             println!("{:?}", token);
         }
 
-        let ast = parser::parse(tokens)?;
-        println!("{:?}", ast);
+        match parser::parse(tokens) {
+            Ok(ast) => println!("{:?}", ast),
+            Err(errors) => for error in errors { println!("{}", error) }
+        }
 
         // println!("{}", Binary(&Unary(&tokens[0], &Literal(&tokens[1])), &tokens[2], &Grouping(&Literal(&tokens[4]))));
 
