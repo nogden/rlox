@@ -33,7 +33,7 @@ impl Lox {
         }
 
         match parser::parse(tokens) {
-            Ok(ast) => println!("{:?}", ast),
+            Ok(ast) => println!("{}", ast),
             Err(errors) => for error in errors { println!("{}", error) }
         }
 

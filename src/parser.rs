@@ -196,28 +196,44 @@ pub enum Expression<'s> {
     Literal(Token<'s>),
 }
 
-impl<'s> fmt::Display for Expression<'s> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Expression::*;
-
-        match self {
+impl<'s> Ast<'s> {
+    fn print_node(
+        &self, node: &Expression<'s>, f: &mut fmt::Formatter
+    ) -> fmt::Result {
+        match node {
             Binary(left, operator, right) => {
-                write!(f, "({} {} {})", operator, left, right)
+                write!(f, "({} ", operator)?;
+                self.print_node(&self.nodes[*left], f)?;
+                write!(f, " ")?;
+                self.print_node(&self.nodes[*right], f)?;
+                write!(f, ")")
             },
             Unary(token, expression) => {
-                write!(f, "({} {})", token, expression)
+                write!(f, "({} ", token)?;
+                self.print_node(&self.nodes[*expression], f)?;
+                write!(f, ")")
             },
             Grouping(expression) => {
-                write!(f, "(group {})", expression)
+                write!(f, "(group ")?;
+                self.print_node(&self.nodes[*expression], f)?;
+                write!(f, ")")
             },
-            Literal(token) => {
-                match token.token_type {
-                    Number(n)     => write!(f, "{}", n),
-                    String(s)     => write!(f, "{}", s),
-                    Identifier(i) => write!(f, "{}", i),
-                    _             => panic!("Literal contained non-literal token")
-                }
+            Literal(token) => match token.token_type {
+                Number(n)     => write!(f, "{}", n),
+                String(s)     => write!(f, "{}", s),
+                Identifier(i) => write!(f, "{}", i),
+                _ => unreachable!("Literal contained non-literal token")
             }
+        }
+    }
+}
+
+impl<'s> fmt::Display for Ast<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(root_node) = self.nodes.get(self.root) {
+            self.print_node(root_node, f)
+        } else {
+            Ok(())  // Empty Ast
         }
     }
 }
