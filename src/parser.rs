@@ -190,7 +190,7 @@ impl<'s, I: Iterator<Item = Token<'s>>> Parser<'s, I> {
 type ExprIndex = usize;  // A reference to another Expression in the Ast
 
 #[derive(Clone, Debug)]
-pub enum Expression<'s> {
+enum Expression<'s> {
     Binary(ExprIndex, Token<'s>, ExprIndex),
     Unary(Token<'s>, ExprIndex),
     Grouping(ExprIndex),
@@ -198,41 +198,47 @@ pub enum Expression<'s> {
 }
 
 impl<'s> Ast<'s> {
-    fn print_node(
-        &self, node: &Expression<'s>, f: &mut fmt::Formatter
-    ) -> fmt::Result {
-        match node {
-            Binary(left, operator, right) => {
-                write!(f, "({} ", operator)?;
-                self.print_node(&self.nodes[*left], f)?;
-                write!(f, " ")?;
-                self.print_node(&self.nodes[*right], f)?;
-                write!(f, ")")
-            },
-            Unary(token, expression) => {
-                write!(f, "({} ", token)?;
-                self.print_node(&self.nodes[*expression], f)?;
-                write!(f, ")")
-            },
-            Grouping(expression) => {
-                write!(f, "(group ")?;
-                self.print_node(&self.nodes[*expression], f)?;
-                write!(f, ")")
-            },
-            Literal(token) => match token.token_type {
-                Number(n)     => write!(f, "{}", n),
-                String(s)     => write!(f, "{}", s),
-                Identifier(i) => write!(f, "{}", i),
-                _ => unreachable!("Literal contained non-literal token")
-            }
-        }
+    fn node(&self, node_index: ExprIndex) -> &Expression<'s> {
+        &self.nodes[node_index]
     }
 }
 
 impl<'s> fmt::Display for Ast<'s> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn print<'s>(
+            f: &mut fmt::Formatter,
+            node: &Expression<'s>,
+            ast: &Ast
+        ) -> fmt::Result {
+            match node {
+                Binary(left, operator, right) => {
+                    write!(f, "({} ", operator)?;
+                    print(f, ast.node(*left), ast)?;
+                    write!(f, " ")?;
+                    print(f, ast.node(*right), ast)?;
+                    write!(f, ")")
+                },
+                Unary(token, expression) => {
+                    write!(f, "({} ", token)?;
+                    print(f, ast.node(*expression), ast)?;
+                    write!(f, ")")
+                },
+                Grouping(expression) => {
+                    write!(f, "(group ")?;
+                    print(f, ast.node(*expression), ast)?;
+                    write!(f, ")")
+                },
+                Literal(token) => match token.token_type {
+                    Number(n)     => write!(f, "{}", n),
+                    String(s)     => write!(f, "{}", s),
+                    Identifier(i) => write!(f, "{}", i),
+                    _ => unreachable!("Literal contained non-literal token")
+                }
+            }
+        }
+
         if let Some(root_node) = self.nodes.get(self.root) {
-            self.print_node(root_node, f)
+            print(f, root_node, self)
         } else {
             Ok(())  // Empty Ast
         }
