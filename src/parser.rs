@@ -12,13 +12,14 @@ pub struct Ast<'s> {
 
 #[derive(Error, Debug)]
 pub enum ParseError<'s> {
-    #[error("Missing delimiter to close {opening_delimiter}, found {location}")]
+    #[error("ERROR (line {}): Missing delimiter to close '{opening_delimiter}', \
+             found {token}", token.line)]
     UnmatchedDelimiter {
-        location: Token<'s>,
+        token: Token<'s>,
         opening_delimiter: Token<'s>
     },
 
-    #[error("Expected expression, got {0}")]
+    #[error("ERROR (line {}): Expected expression, got {0}", .0.line)]
     ExpectedExpression(Token<'s>)
 }
 
@@ -170,9 +171,9 @@ impl<'s, I: Iterator<Item = Token<'s>>> Parser<'s, I> {
                 let opening_delimiter = *token;
                 self.advance();
                 let expr = self.expression()?;
-                if let Err(location) = self.consume(RightParen) {
+                if let Err(token) = self.consume(RightParen) {
                     Err(ParseError::UnmatchedDelimiter {
-                        location, opening_delimiter
+                        token, opening_delimiter
                     })
                 } else {
                     Ok(self.found(Grouping(expr)))

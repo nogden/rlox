@@ -33,7 +33,7 @@ pub enum TokenType<'s> {
 pub struct Token<'s> {
     pub token_type: TokenType<'s>,
     lexeme: &'s str,
-    line: usize,
+    pub line: usize,
 }
 
 impl<'s> fmt::Display for Token<'s> {
@@ -256,8 +256,11 @@ impl<'s> Iterator for Tokens<'s> {
         // Eof isn't really a thing, we add it before terminating iteration
         if ! self.ended {
             self.ended = true;
-            let buffer_end = self.source_code.len();
-            self.found(Eof, buffer_end..buffer_end)
+            Some(Token {
+                token_type: Eof,
+                lexeme: "EOF",
+                line: self.current_line
+            })
         } else {
             None
         }
