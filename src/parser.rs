@@ -190,7 +190,7 @@ impl<'s, I: Iterator<Item = Token<'s>>> Parser<'s, I> {
 type ExprIndex = usize;  // A reference to another Expression in the Ast
 
 #[derive(Clone, Debug)]
-enum Expression<'s> {
+pub enum Expression<'s> {
     Binary(ExprIndex, Token<'s>, ExprIndex),
     Unary(Token<'s>, ExprIndex),
     Grouping(ExprIndex),
@@ -198,7 +198,7 @@ enum Expression<'s> {
 }
 
 impl<'s> Ast<'s> {
-    fn node(&self, node_index: ExprIndex) -> &Expression<'s> {
+    pub fn node(&self, node_index: ExprIndex) -> &Expression<'s> {
         &self.nodes[node_index]
     }
 }

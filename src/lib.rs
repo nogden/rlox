@@ -5,6 +5,7 @@
 mod linkedlist;
 mod scanner;
 mod parser;
+mod interpreter;
 
 use std::{
     io::self,
@@ -36,8 +37,6 @@ impl Lox {
             Ok(ast) => println!("{}", ast),
             Err(errors) => for error in errors { println!("{}", error) }
         }
-
-        // println!("{}", Binary(&Unary(&tokens[0], &Literal(&tokens[1])), &tokens[2], &Grouping(&Literal(&tokens[4]))));
 
         Ok(Status::AwaitingInput)
     }
