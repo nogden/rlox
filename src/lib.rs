@@ -26,16 +26,19 @@ impl Lox {
 
     pub fn run(&mut self, _file: &Path, source_code: &str) -> LoxResult<Status> {
         use scanner::Scanner;
-        // TODO(nick): Pass error reporter for error handling
-        let tokens = source_code.tokens();
+        use interpreter::Evaluate;
 
-        for token in tokens.clone() {
-            println!("{:?}", token);
-        }
+        let ast = match parser::parse(source_code.tokens()) {
+            Ok(ast) => ast,
+            Err(syntax_errors) => {
+                for error in syntax_errors { println!("{}", error) }
+                return Ok(Status::AwaitingInput)
+            }
+        };
 
-        match parser::parse(tokens) {
-            Ok(ast) => println!("{}", ast),
-            Err(errors) => for error in errors { println!("{}", error) }
+        match ast.evaluate() {
+            Ok(value) => println!("{}", value),
+            Err(runtime_error) => println!("{}", runtime_error)
         }
 
         Ok(Status::AwaitingInput)
@@ -53,7 +56,7 @@ fn print_now(location: &Location, message: &str) {
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("Could not read file")]
+    #[error("Could not read source file")]
     BadFile(#[from] io::Error),
 }
 

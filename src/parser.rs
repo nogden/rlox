@@ -201,6 +201,10 @@ impl<'s> Ast<'s> {
     pub fn node(&self, node_index: ExprIndex) -> &Expression<'s> {
         &self.nodes[node_index]
     }
+
+    pub fn root(&self) -> &Expression<'s> {
+        &self.nodes[self.root]
+    }
 }
 
 impl<'s> fmt::Display for Ast<'s> {
