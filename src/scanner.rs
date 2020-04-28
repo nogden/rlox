@@ -76,9 +76,9 @@ impl<'s> Tokens<'s> {
         })
     }
 
-    fn followed_by(&mut self, character: char) -> bool {
+    fn followed_by(&mut self, expected: char) -> bool {
         match self.chars.peek() {
-            Some((_, c)) if c == &character => {
+            Some((_, character)) if *character == expected => {
                 self.advance();
                 true
             },
@@ -89,7 +89,7 @@ impl<'s> Tokens<'s> {
 
     fn comment(&mut self) {
         while let Some((_, character)) = self.chars.peek() {
-            if character == &'\n' {
+            if *character == '\n' {
                 break // Don't consume the newline, it will update current_line
             }
             self.advance();
@@ -126,12 +126,12 @@ impl<'s> Tokens<'s> {
         Err(())
     }
 
-    fn number(&mut self, start_index: usize) -> Option<Token<'s>> {
+    fn number(&mut self, first_numeral: usize) -> Option<Token<'s>> {
         use TokenType::Number;
-        let mut index = start_index;
+        let mut last_numeral = first_numeral;
 
-        while let Some((i, '0'..='9')) = self.chars.peek() {
-            index = *i;
+        while let Some((index, '0'..='9')) = self.chars.peek() {
+            last_numeral = *index;
             self.advance()
         }
 
@@ -148,38 +148,41 @@ impl<'s> Tokens<'s> {
         if has_fractional_part {
             self.advance();  // Consume decimal point
 
-            while let Some((i, '0'..='9')) = self.chars.peek() {
-                index = *i;
+            while let Some((index, '0'..='9')) = self.chars.peek() {
+                last_numeral = *index;
                 self.advance();
             }
         }
 
-        let number: f64 = self.source_code[start_index..=index].parse().unwrap();
-        self.found(Number(number), start_index..=index)
+        let number: f64 = self.source_code[first_numeral..=last_numeral]
+            .parse().unwrap();
+        self.found(Number(number), first_numeral..=last_numeral)
     }
 
-    fn identifier(&mut self, start_index: usize) -> Option<Token<'s>> {
+    fn identifier(&mut self, first_char: usize) -> Option<Token<'s>> {
         use TokenType::Identifier;
-        let mut index = start_index;
+        let mut last_char = first_char;
 
-        while let Some((i, c)) = self.chars.peek() {
-            if !c.is_alphanumeric() && c != &'_' {
+        while let Some((index, character)) = self.chars.peek() {
+            if character.is_alphanumeric() || *character == '_' {
+                last_char = *index;
+                self.advance()
+            } else {
                 break
             }
-            index = *i;
-            self.advance()
         }
 
-        let identifier = &self.source_code[start_index..=index];
+        let identifier = &self.source_code[first_char..=last_char];
         if let Some(token_type) = self.keyword(identifier) {
-            self.found(token_type, start_index..=index)
+            self.found(token_type, first_char..=last_char)
         } else {
-            self.found(Identifier(identifier), start_index..=index)
+            self.found(Identifier(identifier), first_char..=last_char)
         }
     }
 
     fn keyword(&self, identifier: &str) -> Option<TokenType<'s>> {
         use TokenType::*;
+
         match identifier {
             "and"    => Some(And),
             "class"  => Some(Class),
