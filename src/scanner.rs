@@ -96,27 +96,34 @@ impl<'s> Tokens<'s> {
         }
     }
 
-    fn string(&mut self, start_index: usize) -> Option<Token<'s>> {
+    fn string(&mut self, opening_quote: usize) -> Result<Token<'s>, ()> {
         use TokenType::String;
         let start_line = self.current_line;
-        let mut end_index = start_index;
+        let first_char = opening_quote + 1;
 
         while let Some((index, character)) = self.chars.peek() {
             match character {
                 '\n' => self.current_line += 1,
                 '"' => {
-                    self.advance();
-                    let string = &self.source_code[start_index..=end_index];
-                    return self.found(String(string), start_index..=end_index);
+                    let closing_quote = *index;
+                    self.advance();  // Skip the closing '"'
+                    let string = if first_char == closing_quote {
+                        ""
+                    } else {
+                        &self.source_code[first_char..closing_quote]
+                    };
+                    return Ok(Token {
+                        token_type: String(string),
+                        lexeme: &self.source_code[opening_quote..=closing_quote],
+                        line: start_line
+                    });
                 },
                 _ => { /* Include in string */ }
             }
-            end_index = *index;
             self.advance()
         }
 
-        eprintln!("Unterminated string starting on line {}", start_line);
-        None
+        Err(())
     }
 
     fn number(&mut self, start_index: usize) -> Option<Token<'s>> {
@@ -240,14 +247,14 @@ impl<'s> Iterator for Tokens<'s> {
                 },
                 ' ' | '\r' | '\t' => { /* Ignore whitespace */ },
                 '\n' => self.current_line += 1,
-                '"' => return self.string(index + 1),  // Don't include the '"'
+                '"' => return self.string(index).ok(),
                 '0'..='9' => return self.number(index),
                 c if c == '_' || c.is_alphabetic()
                     => return self.identifier(index),
 
                 // TODO(nick): Collect errors for future processing.
                 _ => eprintln!(
-                    "Unexpected character: {} on line {}",
+                    "WARN: Unexpected character: {} on line {}, ignoring",
                     character, self.current_line
                 )
             };
