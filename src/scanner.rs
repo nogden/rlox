@@ -1,46 +1,19 @@
 use std::{
-    fmt, iter,
+    iter,
     slice::SliceIndex,
     str::CharIndices,
+};
+
+use crate::{
+    token::{TokenType, Token},
+    error::{ParseError, ParseError::*},
 };
 
 pub trait Scanner {
     fn tokens(&self) -> Tokens;
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum TokenType<'s> {
-    // Single character tokens
-    LeftParen, RightParen, LeftBrace, RightBrace,
-    Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
-
-    // One or two character tokens
-    Bang, BangEqual, Equal, EqualEqual,
-    Greater, GreaterEqual,
-    Less, LessEqual,
-
-    // Literals
-    Identifier(&'s str), String(&'s str), Number(f64),
-
-    // Keywords
-    And, Class, Else, False, Fun, For, If, Nil, Or,
-    Print, Return, Super, This, True, Var, While,
-
-    Eof,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Token<'s> {
-    pub token_type: TokenType<'s>,
-    lexeme: &'s str,
-    pub line: usize,
-}
-
-impl<'s> fmt::Display for Token<'s> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.lexeme)
-    }
-}
+type NextToken<'s> = Option<Result<Token<'s>, ParseError<'s>>>;
 
 impl Scanner for str {
     fn tokens(&self) -> Tokens {
@@ -68,12 +41,12 @@ impl<'s> Tokens<'s> {
 
     fn found(
         &self, token: TokenType<'s>, location: impl SliceIndex<str, Output=str>
-    ) -> Option<Token<'s>> {
-        Some(Token {
+    ) -> NextToken<'s> {
+        Some(Ok(Token {
             token_type: token,
             lexeme: &self.source_code[location],
             line: self.current_line
-        })
+        }))
     }
 
     fn followed_by(&mut self, expected: char) -> bool {
@@ -96,7 +69,9 @@ impl<'s> Tokens<'s> {
         }
     }
 
-    fn string(&mut self, opening_quote: usize) -> Result<Token<'s>, ()> {
+    fn string(
+        &mut self, opening_quote: usize
+    ) -> Result<Token<'s>, ParseError<'s>> {
         use TokenType::String;
         let start_line = self.current_line;
         let first_char = opening_quote + 1;
@@ -123,10 +98,14 @@ impl<'s> Tokens<'s> {
             self.advance()
         }
 
-        Err(())
+        Err(UnterminatedString(Token {
+            token_type: String(""),
+            lexeme: &self.source_code[opening_quote..],
+            line: self.current_line
+        }))
     }
 
-    fn number(&mut self, first_numeral: usize) -> Option<Token<'s>> {
+    fn number(&mut self, first_numeral: usize) -> NextToken<'s> {
         use TokenType::Number;
         let mut last_numeral = first_numeral;
 
@@ -159,7 +138,7 @@ impl<'s> Tokens<'s> {
         self.found(Number(number), first_numeral..=last_numeral)
     }
 
-    fn identifier(&mut self, first_char: usize) -> Option<Token<'s>> {
+    fn identifier(&mut self, first_char: usize) -> NextToken<'s> {
         use TokenType::Identifier;
         let mut last_char = first_char;
 
@@ -206,7 +185,7 @@ impl<'s> Tokens<'s> {
 }
 
 impl<'s> Iterator for Tokens<'s> {
-    type Item = Token<'s>;
+    type Item = Result<Token<'s>, ParseError<'s>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         use TokenType::*;
@@ -250,7 +229,7 @@ impl<'s> Iterator for Tokens<'s> {
                 },
                 ' ' | '\r' | '\t' => { /* Ignore whitespace */ },
                 '\n' => self.current_line += 1,
-                '"' => return self.string(index).ok(),
+                '"' => return Some(self.string(index)),
                 '0'..='9' => return self.number(index),
                 c if c == '_' || c.is_alphabetic()
                     => return self.identifier(index),
@@ -266,11 +245,11 @@ impl<'s> Iterator for Tokens<'s> {
         // Eof isn't really a thing, we add it before terminating iteration
         if ! self.ended {
             self.ended = true;
-            Some(Token {
+            Some(Ok(Token {
                 token_type: Eof,
                 lexeme: "EOF",
                 line: self.current_line
-            })
+            }))
         } else {
             None
         }

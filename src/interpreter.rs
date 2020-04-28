@@ -3,7 +3,7 @@ use std::fmt;
 use thiserror::Error;
 
 use crate::{
-    scanner::{Token, TokenType},
+    token::{Token, TokenType},
     parser::{Ast, Expression, Expression::*}
 };
 

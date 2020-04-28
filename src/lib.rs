@@ -3,9 +3,11 @@
 
 #[cfg(test)]
 mod linkedlist;
+mod token;
 mod scanner;
 mod parser;
 mod interpreter;
+mod error;
 
 use std::{
     io::self,
