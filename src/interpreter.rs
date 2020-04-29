@@ -21,14 +21,14 @@ pub enum Value {
 
 #[derive(Clone, Debug, Error)]
 pub enum RuntimeError<'s> {
-    #[error("ERROR (line {}): Unary '{operator}' is not applicable to {value}",
+    #[error("(line {}): Unary '{operator}' is not applicable to {value}",
             operator.line)]
     UnaryOperatorNotApplicable {
         value: Value,
         operator: Token<'s>
     },
 
-    #[error("ERROR (line {}): Binary '{operator}' is not appicable to {lhs} \
+    #[error("(line {}): Binary '{operator}' is not appicable to {lhs} \
              and {rhs}", operator.line)]
     BinaryOperatorNotApplicable {
         lhs: Value,
@@ -69,8 +69,11 @@ impl<'s> Evaluate<'s> for Ast<'s> {
 
             match node {
                 Literal(Token { token_type: t, .. }) => match *t {
-                    TT::Number(n) => Ok(Number(n)),
-                    TT::String(s) => Ok(String(s.to_owned())),
+                    TT::Number(n)  => Ok(Number(n)),
+                    TT::String(s)  => Ok(String(s.to_owned())),
+                    TT::True       => Ok(Boolean(true)),
+                    TT::False      => Ok(Boolean(false)),
+                    TT::Nil        => Ok(Nil),
                     _ => unreachable!("Literal other than number or string")
                 },
                 Grouping(expr) => {
