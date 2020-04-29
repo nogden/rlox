@@ -10,18 +10,17 @@ mod interpreter;
 mod error;
 
 use std::{
-    io::self,
+    fmt,
     path::Path,
+    error::Error
 };
 
-use thiserror::Error;
+pub type LoxResult<'s, T> = std::result::Result<T, LoxError<'s>>;
 
-pub type LoxResult<T> = std::result::Result<T, Error>;
-
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("Could not read source file")]
-    BadFile(#[from] io::Error),
+#[derive(Debug)]
+pub enum LoxError<'s> {
+    ParseErrors(Vec<error::ParseError<'s>>),
+    RuntimeError(interpreter::RuntimeError<'s>)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -37,25 +36,48 @@ impl Lox {
         Lox {}
     }
 
-    pub fn run(&mut self, _file: &Path, source_code: &str) -> LoxResult<Status> {
+    pub fn run<'s>(
+        &mut self, _file: &Path, source_code: &'s str
+    ) -> LoxResult<'s, (interpreter::Value, Status)> {
         use scanner::Scanner;
         use interpreter::Evaluate;
 
-        let ast = match parser::parse(source_code.tokens()) {
-            Ok(ast) => ast,
-            Err(syntax_errors) => {
-                for error in syntax_errors {
-                    println!("ERROR {}", error)
-                }
-                return Ok(Status::AwaitingInput)
-            }
-        };
+        let ast = parser::parse(source_code.tokens())?;
+        let value = ast.evaluate()?;
 
-        match ast.evaluate() {
-            Ok(value) => println!("{}", value),
-            Err(runtime_error) => println!("ERROR {}", runtime_error)
+        Ok((value, Status::AwaitingInput))
+    }
+}
+
+impl<'s> Error for LoxError<'s> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}
+
+impl<'s> fmt::Display for LoxError<'s> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use LoxError::*;
+
+        match self {
+            ParseErrors(parse_errors) => {
+                for error in parse_errors { write!(f, "{}", error)? }
+                Ok(())
+            },
+
+            RuntimeError(runtime_error) => write!(f, "{}", runtime_error)
         }
+    }
+}
 
-        Ok(Status::AwaitingInput)
+impl<'s> From<Vec<error::ParseError<'s>>> for LoxError<'s> {
+    fn from(errors: Vec<error::ParseError<'s>>) -> Self {
+        Self::ParseErrors(errors)
+    }
+}
+
+impl<'s> From<interpreter::RuntimeError<'s>> for LoxError<'s> {
+    fn from(error: interpreter::RuntimeError<'s>) -> Self {
+        Self::RuntimeError(error)
     }
 }

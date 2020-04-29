@@ -4,14 +4,16 @@ use std::{
     path::Path,
 };
 
-use rlox::{Status, LoxResult};
+use rlox::{Status};
 
-fn main() -> LoxResult<()> {
+type ExitStatus = i32;
+
+fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     let exit_status = match args.as_slice() {
-        [_]              => run_prompt()?,
-        [_, script_file] => run_file(&script_file)?,
+        [_]              => repl(),
+        [_, script_file] => run_script(&script_file),
         [..]             => {
             println!("Usage: lox [script]");
             64
@@ -21,32 +23,52 @@ fn main() -> LoxResult<()> {
     std::process::exit(exit_status);
 }
 
-fn run_prompt() -> LoxResult<i32> {
+fn repl() -> ExitStatus {
     let mut input = String::new();
     let stdin = io::stdin();
     let mut input_stream = stdin.lock();
     let mut lox = rlox::Lox::new();
-    let path = Path::new("(no source file)");
+    let path = Path::new("(REPL)");
 
-    println!("RLox 1.0 (interpreted mode)");
+    println!("RLox 1.0 (interactive mode)");
     loop {
         print!("> ");
-        io::stdout().flush()?;
-        input_stream.read_line(&mut input)?;
-        if let Status::Terminated(exit_status) = lox.run(&path, &input)? {
-            return Ok(exit_status)
+        io::stdout().flush().expect("Unable to flush stdout");
+        input_stream.read_line(&mut input).expect("Unable to read from stdin");
+        match lox.run(&path, &input) {
+            Ok((value, status)) => {
+                println!("{}", value);
+
+                if let Status::Terminated(exit_status) = status {
+                    return exit_status
+                }
+            }
+            Err(error) => println!("ERROR {}", error),
         }
         input.clear();
     }
 }
 
-fn run_file<P: AsRef<Path>>(file: P) -> LoxResult<i32> {
-    let script = std::fs::read_to_string(file.as_ref())?;
-    let mut lox = rlox::Lox::new();
+fn run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
+    let script = match std::fs::read_to_string(file.as_ref()) {
+        Ok(contents) => contents,
+        Err(error) => {
+            println!(
+                "ERROR: Unable to read source file \"{}\": {}",
+                file.as_ref().display(),
+                error
+            );
+            return 64
+        }
+    };
 
-    if let Status::Terminated(exit_status) = lox.run(file.as_ref(), &script)? {
-        Ok(exit_status)
-    } else {
-        Ok(0)
+    let mut lox = rlox::Lox::new();
+    match lox.run(file.as_ref(), &script) {
+        Ok((_, Status::Terminated(exit_status))) => exit_status,
+        Ok(_)                                    => 0,
+        Err(error) => {
+            println!("ERROR {}", error);
+            65
+        }
     }
 }
