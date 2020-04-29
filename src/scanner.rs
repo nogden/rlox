@@ -234,15 +234,14 @@ impl<'s> Iterator for Tokens<'s> {
                 c if c == '_' || c.is_alphabetic()
                     => return self.identifier(index),
 
-                // TODO(nick): Collect errors for future processing.
-                _ => eprintln!(
-                    "WARN: Unexpected character: {} on line {}, ignoring",
-                    character, self.current_line
-                )
+                _ => return Some(Err(UnexpectedCharacter {
+                    character: &self.source_code[index..=index],
+                    line: self.current_line,
+                }))
             };
         }
 
-        // Eof isn't really a thing, we add it before terminating iteration
+        // Eof is a fake token that we add it before terminating iteration
         if ! self.ended {
             self.ended = true;
             Some(Ok(Token {
