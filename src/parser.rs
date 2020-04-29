@@ -4,12 +4,23 @@ use crate::{
     error::{ParseError, ParseError::*},
     token::{Token, TokenType, TokenType::*}
 };
+
 use Expression::*;
 
 #[derive(Clone, Debug)]
 pub struct Ast<'s> {
     root: ExprIndex,
     nodes: Vec<Expression<'s>>
+}
+
+type ExprIndex = usize;  // A reference to another Expression in the Ast
+
+#[derive(Clone, Debug)]
+pub enum Expression<'s> {
+    Binary(ExprIndex, Token<'s>, ExprIndex),
+    Unary(Token<'s>, ExprIndex),
+    Grouping(ExprIndex),
+    Literal(Token<'s>),
 }
 
 pub fn parse<'s, 'i>(
@@ -21,6 +32,16 @@ pub fn parse<'s, 'i>(
     };
 
     parser.parse()
+}
+
+impl<'s> Ast<'s> {
+    pub fn node(&self, node_index: ExprIndex) -> &Expression<'s> {
+        &self.nodes[node_index]
+    }
+
+    pub fn root(&self) -> &Expression<'s> {
+        &self.nodes[self.root]
+    }
 }
 
 struct Parser<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> {
@@ -173,26 +194,6 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
             None => unreachable!("Should have terminated at Eof")
         }
-    }
-}
-
-type ExprIndex = usize;  // A reference to another Expression in the Ast
-
-#[derive(Clone, Debug)]
-pub enum Expression<'s> {
-    Binary(ExprIndex, Token<'s>, ExprIndex),
-    Unary(Token<'s>, ExprIndex),
-    Grouping(ExprIndex),
-    Literal(Token<'s>),
-}
-
-impl<'s> Ast<'s> {
-    pub fn node(&self, node_index: ExprIndex) -> &Expression<'s> {
-        &self.nodes[node_index]
-    }
-
-    pub fn root(&self) -> &Expression<'s> {
-        &self.nodes[self.root]
     }
 }
 

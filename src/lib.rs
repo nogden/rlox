@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 #![feature(or_patterns)]
 
-#[cfg(test)]
-mod linkedlist;
 mod token;
 mod scanner;
 mod parser;
@@ -14,6 +12,8 @@ use std::{
     path::Path,
     error::Error
 };
+
+pub use interpreter::Value;
 
 pub type LoxResult<'s, T> = std::result::Result<T, LoxError<'s>>;
 
