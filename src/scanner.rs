@@ -9,11 +9,17 @@ use crate::{
     error::{ParseError, ParseError::*},
 };
 
+#[derive(Clone)]
+pub struct Tokens<'s> {
+    source_code: &'s str,
+    chars: iter::Peekable<CharIndices<'s>>,
+    current_line: usize,
+    ended: bool,
+}
+
 pub trait Scanner {
     fn tokens(&self) -> Tokens;
 }
-
-type NextToken<'s> = Option<Result<Token<'s>, ParseError<'s>>>;
 
 impl Scanner for str {
     fn tokens(&self) -> Tokens {
@@ -26,13 +32,7 @@ impl Scanner for str {
     }
 }
 
-#[derive(Clone)]
-pub struct Tokens<'s> {
-    source_code: &'s str,
-    chars: iter::Peekable<CharIndices<'s>>,
-    current_line: usize,
-    ended: bool,
-}
+type NextToken<'s> = Option<Result<Token<'s>, ParseError<'s>>>;
 
 impl<'s> Tokens<'s> {
     fn advance(&mut self) {

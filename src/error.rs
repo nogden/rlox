@@ -4,25 +4,25 @@ use crate::token::Token;
 
 #[derive(Clone, Debug, Error)]
 pub enum ParseError<'s> {
-    #[error("ERROR (line {line}): Unexpected character '{character}'")]
+    #[error("(line {line}): Unexpected character '{character}'")]
     UnexpectedCharacter {
         character: &'s str,
         line: usize
     },
 
-    #[error("ERROR (line {}): Unexpected end of file", .0.line)]
+    #[error("(line {}): Unexpected end of file", .0.line)]
     UnexpectedEndOfFile(Token<'s>),
 
-    #[error("ERROR (line {}): Unterminated string {0}", .0.line)]
+    #[error("(line {}): Unterminated string {0}", .0.line)]
     UnterminatedString(Token<'s>),
 
-    #[error("ERROR (line {}): Missing closing delimiter for \
+    #[error("(line {}): Missing closing delimiter for \
              '{opening_delimiter}', found {token}", token.line)]
     UnmatchedDelimiter {
         token: Token<'s>,
         opening_delimiter: Token<'s>
     },
 
-    #[error("ERROR (line {}): Expected expression, found {0}", .0.line)]
+    #[error("(line {}): Expected expression, found {0}", .0.line)]
     ExpectedExpression(Token<'s>)
 }

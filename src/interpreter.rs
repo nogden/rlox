@@ -1,5 +1,3 @@
-use std::fmt;
-
 use thiserror::Error;
 
 use crate::{
@@ -7,11 +5,11 @@ use crate::{
     parser::{Ast, Expression, Expression::*}
 };
 
-type EvalResult<'s> = Result<Value, RuntimeError<'s>>;
-
 pub trait Evaluate<'s> {
     fn evaluate(&self) -> EvalResult<'s>;
 }
+
+type EvalResult<'s> = Result<Value, RuntimeError<'s>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -19,28 +17,6 @@ pub enum Value {
     String(String),
     Boolean(bool),
     Nil,
-}
-
-impl Value {
-    fn is_truthy(&self) -> bool {
-        match self {
-            Value::Nil | Value::Boolean(false) => false,
-            _                                  => true
-        }
-    }
-}
-
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Value::*;
-
-        match self {
-            Number(n)  => write!(f, "{}", n),
-            String(s)  => write!(f, "\"{}\"", s),
-            Boolean(b) => write!(f, "{}", b),
-            Nil        => write!(f, "nil"),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Error)]
@@ -58,6 +34,30 @@ pub enum RuntimeError<'s> {
         lhs: Value,
         rhs: Value,
         operator: Token<'s>
+    }
+}
+
+impl Value {
+    fn is_truthy(&self) -> bool {
+        match self {
+            Value::Nil | Value::Boolean(false) => false,
+            _                                  => true
+        }
+    }
+}
+
+use std::fmt;
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Value::*;
+
+        match self {
+            Number(n)  => write!(f, "{}", n),
+            String(s)  => write!(f, "\"{}\"", s),
+            Boolean(b) => write!(f, "{}", b),
+            Nil        => write!(f, "nil"),
+        }
     }
 }
 
