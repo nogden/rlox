@@ -1,14 +1,12 @@
-extern crate rlox;
+mod utils;
 
-use std::path::Path;
+use rlox::Value::*;
 
-use rlox::{Lox, Value, Value::*};
-
-macro_rules! lox { ( $( $code:tt)+ ) => { result_of(stringify!($( $code )*)) } }
+use utils::{result_of, string};
 
 #[test]
 fn literals_evaluate_to_themselves() {
-    assert_eq!(Some(Nil),                       lox!( nil ));
+    assert_eq!(Some(Nil),                       lox!( nil               ));
 
     assert_eq!(Some(Number(0.0)),               lox!( 0                 ));
     assert_eq!(Some(Number(0.5)),               lox!( 0.5               ));
@@ -129,21 +127,4 @@ fn expressions_can_be_chained() {
 fn groups_have_highest_precidence() {
     assert_eq!(Some(Number(9.0)),               lox!( (1 + 2) * (1 + 2) ));
     assert_eq!(Some(Number(5.0)),               lox!(  1 + (2 * 1) + 2  ));
-}
-
-// Errors
-
-fn result_of(code_snippet: &str) -> Option<Value> {
-    let mut lox = Lox;
-
-    match lox.run(Path::new("test_code"), code_snippet) {
-        Ok((value, _)) => value,
-        Err(error) => panic!(
-            "Lox code '{}' raised error: '{}'", code_snippet, error
-        )
-    }
-}
-
-fn string(string: &str) -> Value {
-    String(string.to_owned())
 }

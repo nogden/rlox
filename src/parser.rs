@@ -67,7 +67,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
                 Err(error) => {
                     errors.push(error);
-                    //self.synchronise()
+                    self.synchronise()
                 },
 
                 Ok(None) => if errors.is_empty() {
