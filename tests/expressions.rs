@@ -123,7 +123,12 @@ fn expressions_can_be_chained() {
     assert_eq!(Boolean(true),             lox!( 1 > 2 < true      ));
 }
 
-// Grouping
+#[test]
+fn groups_have_highest_precidence() {
+    assert_eq!(Number(9.0),               lox!( (1 + 2) * (1 + 2) ));
+    assert_eq!(Number(5.0),               lox!(  1 + (2 * 1) + 2  ));
+}
+
 // Errors
 
 fn result_of(code_snippet: &str) -> Value {
