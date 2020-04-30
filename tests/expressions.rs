@@ -4,60 +4,62 @@ use std::path::Path;
 
 use rlox::{Lox, Value, Value::*};
 
+macro_rules! lox { ( $( $code:tt)+ ) => { result_of(stringify!($( $code )*)) } }
+
 #[test]
 fn literals_evaluate_to_themselves() {
-    assert_eq!(Nil,                       result_of(r#" nil               "#));
+    assert_eq!(Nil,                       lox!( nil ));
 
-    assert_eq!(Number(0.0),               result_of(r#" 0                 "#));
-    assert_eq!(Number(0.5),               result_of(r#" 0.5               "#));
-    assert_eq!(Number(10.0),              result_of(r#" 10                "#));
-    assert_eq!(Number(9999.9999),         result_of(r#" 9999.9999         "#));
-    assert_eq!(Number(-1.0),              result_of(r#" -1                "#));
-    assert_eq!(Number(-3.14159),          result_of(r#" -3.14159          "#));
-    assert_eq!(Number(0.0),               result_of(r#" -0                "#));
-    assert_eq!(Number(-1.0),              result_of(r#" -     1.0         "#));
+    assert_eq!(Number(0.0),               lox!( 0                 ));
+    assert_eq!(Number(0.5),               lox!( 0.5               ));
+    assert_eq!(Number(10.0),              lox!( 10                ));
+    assert_eq!(Number(9999.9999),         lox!( 9999.9999         ));
+    assert_eq!(Number(-1.0),              lox!( -1                ));
+    assert_eq!(Number(-3.14159),          lox!( -3.14159          ));
+    assert_eq!(Number(0.0),               lox!( -0                ));
+    assert_eq!(Number(-1.0),              lox!( -     1.0         ));
 
-    assert_eq!(string(""),                result_of(r#" ""                "#));
-    assert_eq!(string("0"),               result_of(r#" "0"               "#));
-    assert_eq!(string("Hello"),           result_of(r#" "Hello"           "#));
-    assert_eq!(string("Unicode 😃"),      result_of(r#" "Unicode 😃"     "#));
-    assert_eq!(string("  Spacing kept "), result_of(r#" "  Spacing kept " "#));
-    assert_eq!(string("No \\n newlines"), result_of(r#" "No \n newlines"  "#));
+    assert_eq!(string(""),                lox!( ""                ));
+    assert_eq!(string("0"),               lox!( "0"               ));
+    assert_eq!(string("Hello"),           lox!( "Hello"           ));
+    assert_eq!(string("Unicode 😃"),      lox!( "Unicode 😃"     ));
+    assert_eq!(string("  Spacing kept "), lox!( "  Spacing kept " ));
+    assert_eq!(string("No \\n newlines"), lox!( "No \n newlines"  ));
 
-    assert_eq!(Boolean(true),             result_of(r#" true              "#));
-    assert_eq!(Boolean(false),            result_of(r#" false             "#));
+    assert_eq!(Boolean(true),             lox!( true              ));
+    assert_eq!(Boolean(false),            lox!( false             ));
 }
 
 #[test]
 fn simple_arithmatic() {
-    assert_eq!(Number(0.0),               result_of(r#"   0 + 0           "#));
-    assert_eq!(Number(1.0),               result_of(r#"   0 + 1           "#));
-    assert_eq!(Number(8.0),               result_of(r#"   2 + 6           "#));
-    assert_eq!(Number(0.75),              result_of(r#" 0.5 + 0.25        "#));
-    assert_eq!(Number(1.0),               result_of(r#"  -5 + 6           "#));
+    assert_eq!(Number(0.0),               lox!(   0 + 0           ));
+    assert_eq!(Number(1.0),               lox!(   0 + 1           ));
+    assert_eq!(Number(8.0),               lox!(   2 + 6           ));
+    assert_eq!(Number(0.75),              lox!( 0.5 + 0.25        ));
+    assert_eq!(Number(1.0),               lox!(  -5 + 6           ));
 
-    assert_eq!(Number(-1.0),              result_of(r#"   0 - 1           "#));
-    assert_eq!(Number(0.0),               result_of(r#"   0 - 0           "#));
-    assert_eq!(Number(11.0),              result_of(r#"  10 - -1          "#));
-    assert_eq!(Number(-6.0),              result_of(r#"  -8 - -2          "#));
+    assert_eq!(Number(-1.0),              lox!(   0 - 1           ));
+    assert_eq!(Number(0.0),               lox!(   0 - 0           ));
+    assert_eq!(Number(11.0),              lox!(  10 - -1          ));
+    assert_eq!(Number(-6.0),              lox!(  -8 - -2          ));
 
-    assert_eq!(Number(20.0),              result_of(r#"  10 * 2           "#));
-    assert_eq!(Number(5.0),               result_of(r#" 0.5 * 10          "#));
-    assert_eq!(Number(0.0),               result_of(r#"  -9 * 0           "#));
-    assert_eq!(Number(0.0),               result_of(r#"   0 * 0           "#));
+    assert_eq!(Number(20.0),              lox!(  10 * 2           ));
+    assert_eq!(Number(5.0),               lox!( 0.5 * 10          ));
+    assert_eq!(Number(0.0),               lox!(  -9 * 0           ));
+    assert_eq!(Number(0.0),               lox!(   0 * 0           ));
 
-    assert_eq!(Number(5.0),               result_of(r#"  10 / 2           "#));
-    assert_eq!(Number(0.125),             result_of(r#" 0.5 / 4           "#));
-    assert_eq!(Number(1.0),               result_of(r#" 0.1 / 0.1         "#));
-    assert_eq!(Number(0.0),               result_of(r#"   0 / 20          "#));
-    assert_eq!(Number(f64::INFINITY),     result_of(r#"   8 / 0           "#));
+    assert_eq!(Number(5.0),               lox!(  10 / 2           ));
+    assert_eq!(Number(0.125),             lox!( 0.5 / 4           ));
+    assert_eq!(Number(1.0),               lox!( 0.1 / 0.1         ));
+    assert_eq!(Number(0.0),               lox!(   0 / 20          ));
+    assert_eq!(Number(f64::INFINITY),     lox!(   8 / 0           ));
 }
 
 #[test]
 fn string_concatenation() {
-    assert_eq!(string(""),                result_of(r#" "" + ""           "#));
-    assert_eq!(string(" "),               result_of(r#" "" + " "          "#));
-    assert_eq!(string(" hello "),         result_of(r#" " hel" + "lo "    "#));
+    assert_eq!(string(""),                lox!( "" + ""           ));
+    assert_eq!(string(" "),               lox!( "" + " "          ));
+    assert_eq!(string(" hello "),         lox!( " hel" + "lo "    ));
 }
 
 #[test]
@@ -116,17 +118,22 @@ fn true_is_greater_than_false() {
 
 #[test]
 fn expressions_can_be_chained() {
-    assert_eq!(Number(1.5),               result_of(r#" 2 * 3 / 4         "#));
-    assert_eq!(string(" .."),             result_of(r#" "" + " " + ".."   "#));
-    assert_eq!(Boolean(true),             result_of(r#" 1 > 2 < true      "#));
+    assert_eq!(Number(1.5),               lox!( 2 * 3 / 4         ));
+    assert_eq!(string(" .."),             lox!( "" + " " + ".."   ));
+    assert_eq!(Boolean(true),             lox!( 1 > 2 < true      ));
 }
+
+// Grouping
+// Errors
 
 fn result_of(code_snippet: &str) -> Value {
     let mut lox = Lox;
 
     match lox.run(Path::new("test_code"), code_snippet) {
         Ok((value, _)) => value,
-        Err(error) => panic!("Code snippet failed: {}", error)
+        Err(error) => panic!(
+            "Lox code '{}' raised error: '{}'", code_snippet, error
+        )
     }
 }
 
