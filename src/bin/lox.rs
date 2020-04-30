@@ -36,14 +36,16 @@ fn repl() -> ExitStatus {
         io::stdout().flush().expect("Unable to flush stdout");
         input_stream.read_line(&mut input).expect("Unable to read from stdin");
         match lox.run(&path, &input) {
-            Ok((value, status)) => {
-                println!("{}", value);
+            Ok((result, status)) => {
+                if let Some(value) = result {
+                    println!("{}", value);
+                }
 
                 if let Status::Terminated(exit_status) = status {
                     return exit_status
                 }
             }
-            Err(error) => println!("ERROR {}", error),
+            Err(error) => println!("{}", error),
         }
         input.clear();
     }
@@ -67,7 +69,7 @@ fn run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
         Ok((_, Status::Terminated(exit_status))) => exit_status,
         Ok(_)                                    => 0,
         Err(error) => {
-            println!("ERROR {}", error);
+            println!("{}", error);
             65
         }
     }

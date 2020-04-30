@@ -38,7 +38,7 @@ impl Lox {
 
     pub fn run<'s>(
         &mut self, _file: &Path, source_code: &'s str
-    ) -> LoxResult<'s, (interpreter::Value, Status)> {
+    ) -> LoxResult<'s, (Option<Value>, Status)> {
         use scanner::Scanner;
         use interpreter::Evaluate;
 
@@ -61,11 +61,11 @@ impl<'s> fmt::Display for LoxError<'s> {
 
         match self {
             ParseErrors(parse_errors) => {
-                for error in parse_errors { write!(f, "{}", error)? }
+                for error in parse_errors { writeln!(f, "ERROR {}", error)? }
                 Ok(())
             },
 
-            RuntimeError(runtime_error) => write!(f, "{}", runtime_error)
+            RuntimeError(runtime_error) => write!(f, "ERROR {}", runtime_error)
         }
     }
 }

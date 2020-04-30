@@ -2,14 +2,15 @@ use thiserror::Error;
 
 use crate::{
     token::{Token, TokenType},
-    parser::{Ast, Expression, Expression::*}
+    parser::{Ast, Expression, Expression::*, Statement, Statement::*}
 };
 
 pub trait Evaluate<'s> {
     fn evaluate(&self) -> EvalResult<'s>;
 }
 
-type EvalResult<'s> = Result<Value, RuntimeError<'s>>;
+type EvalResult<'s> = Result<Option<Value>, RuntimeError<'s>>;
+type ExprResult<'s> = Result<Value, RuntimeError<'s>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -63,59 +64,81 @@ impl fmt::Display for Value {
 
 impl<'s> Evaluate<'s> for Ast<'s> {
     fn evaluate(&self) -> EvalResult<'s> {
-        fn eval<'s>(node: &Expression<'s>, ast: &Ast<'s>) -> EvalResult<'s> {
-            use Value::*;
-            use TokenType as TT;
-
-            match node {
-                Literal(Token { token_type: t, .. }) => match *t {
-                    TT::Number(n)  => Ok(Number(n)),
-                    TT::String(s)  => Ok(String(s.to_owned())),
-                    TT::True       => Ok(Boolean(true)),
-                    TT::False      => Ok(Boolean(false)),
-                    TT::Nil        => Ok(Nil),
-                    _ => unreachable!("Literal other than number or string")
-                },
-                Grouping(expr) => {
-                    eval(ast.node(*expr), ast)
-                },
-                Unary(token, rhs) => {
-                    let value = eval(ast.node(*rhs), ast)?;
-
-                    match token.token_type {
-                        TT::Minus => negate(&value, token),
-                        TT::Bang  => Ok(Boolean(!value.is_truthy())),
-                        _ => unreachable!("Unary operation other than (!|-)")
-                    }
-                },
-                Binary(lhs, token, rhs) => {
-                    let left  = eval(ast.node(*lhs), ast)?;
-                    let right = eval(ast.node(*rhs), ast)?;
-
-                    match token.token_type {
-                        TT::Greater      => greater(&left, &right, token),
-                        TT::GreaterEqual => greater_eq(&left, &right, token),
-                        TT::Less         => less(&left, &right, token),
-                        TT::LessEqual    => less_eq(&left, &right, token),
-                        TT::EqualEqual   => Ok(Boolean(left == right)),
-                        TT::BangEqual    => Ok(Boolean(left != right)),
-                        TT::Minus        => minus(&left, &right, token),
-                        TT::Slash        => divide(&left, &right, token),
-                        TT::Star         => multiply(&left, &right, token),
-                        TT::Plus         => plus(&left, &right, token),
-                        _ => unreachable!("Binary operator other than (+|-|*|/)")
-                    }
-                }
-            }
+        let mut last_value = None;
+        for statement in self.statements() {
+            last_value = eval_statement(statement, self)?
         }
 
-        eval(self.root(), self)
+        Ok(last_value)
+    }
+}
+
+fn eval_statement<'s>(
+    statement: &Statement, ast: &Ast<'s>
+) -> EvalResult<'s> {
+    match statement {
+        Expression(expression) =>
+            eval_expression(ast.expression(*expression), ast).map(|v| Some(v)),
+
+        Print(expression) => {
+            let result = eval_expression(ast.expression(*expression), ast)?;
+            println!("{}", result);
+            Ok(None)
+        }
+    }
+}
+
+fn eval_expression<'s>(
+    expression: &Expression<'s>, ast: &Ast<'s>
+) -> ExprResult<'s> {
+    use Value::*;
+    use TokenType as TT;
+
+    match expression {
+        Literal(Token { token_type: t, .. }) => match *t {
+            TT::Number(n)  => Ok(Number(n)),
+            TT::String(s)  => Ok(String(s.to_owned())),
+            TT::True       => Ok(Boolean(true)),
+            TT::False      => Ok(Boolean(false)),
+            TT::Nil        => Ok(Nil),
+            _ => unreachable!("Literal other than number or string")
+        },
+        Grouping(expr) => {
+            eval_expression(ast.expression(*expr), ast)
+        },
+        Unary(token, rhs) => {
+            let value = eval_expression(ast.expression(*rhs), ast)?;
+
+            match token.token_type {
+                TT::Minus => negate(&value, token),
+                TT::Bang  => Ok(Boolean(!value.is_truthy())),
+                _ => unreachable!("Unary operation other than (!|-)")
+            }
+        },
+        Binary(lhs, token, rhs) => {
+            let left  = eval_expression(ast.expression(*lhs), ast)?;
+            let right = eval_expression(ast.expression(*rhs), ast)?;
+
+            match token.token_type {
+                TT::Greater      => greater(&left, &right, token),
+                TT::GreaterEqual => greater_eq(&left, &right, token),
+                TT::Less         => less(&left, &right, token),
+                TT::LessEqual    => less_eq(&left, &right, token),
+                TT::EqualEqual   => Ok(Boolean(left == right)),
+                TT::BangEqual    => Ok(Boolean(left != right)),
+                TT::Minus        => minus(&left, &right, token),
+                TT::Slash        => divide(&left, &right, token),
+                TT::Star         => multiply(&left, &right, token),
+                TT::Plus         => plus(&left, &right, token),
+                _ => unreachable!("Binary operator other than (+|-|*|/)")
+            }
+        }
     }
 }
 
 macro_rules! binary_operator (
     ($name:ident, $op:tt, $($type:tt)|+ -> $ret:tt) => {
-        fn $name<'s>(lhs: &Value, rhs: &Value, operator: &Token<'s>) -> EvalResult<'s> {
+        fn $name<'s>(lhs: &Value, rhs: &Value, operator: &Token<'s>) -> ExprResult<'s> {
             use Value::*;
 
             match (lhs, rhs) {
@@ -139,7 +162,7 @@ binary_operator!(minus,      -,  Number -> Number);
 binary_operator!(multiply,   *,  Number -> Number);
 binary_operator!(divide,     /,  Number -> Number);
 
-fn negate<'s>(value: &Value, operator: &Token<'s>) -> EvalResult<'s> {
+fn negate<'s>(value: &Value, operator: &Token<'s>) -> ExprResult<'s> {
     use Value::*;
 
     match value {
@@ -151,7 +174,7 @@ fn negate<'s>(value: &Value, operator: &Token<'s>) -> EvalResult<'s> {
     }
 }
 
-fn plus<'s>(lhs: &Value, rhs: &Value, operator: &Token<'s>) -> EvalResult<'s> {
+fn plus<'s>(lhs: &Value, rhs: &Value, operator: &Token<'s>) -> ExprResult<'s> {
     use Value::*;
 
     match (lhs, rhs) {

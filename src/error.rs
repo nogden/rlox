@@ -10,8 +10,8 @@ pub enum ParseError<'s> {
         line: usize
     },
 
-    #[error("(line {}): Unexpected end of file", .0.line)]
-    UnexpectedEndOfFile(Token<'s>),
+    #[error("Unexpected end of file")]
+    UnexpectedEndOfFile,
 
     #[error("(line {}): Unterminated string {0}", .0.line)]
     UnterminatedString(Token<'s>),
@@ -23,6 +23,9 @@ pub enum ParseError<'s> {
         opening_delimiter: Token<'s>
     },
 
-    #[error("(line {}): Expected expression, found {0}", .0.line)]
-    ExpectedExpression(Token<'s>)
+    #[error("(line {}): Expected {}, found {token}", token.line, expected)]
+    UnexpectedToken {
+        token: Token<'s>,
+        expected: &'static str
+    }
 }
