@@ -27,7 +27,7 @@ fn repl() -> ExitStatus {
     let mut input = String::new();
     let stdin = io::stdin();
     let mut input_stream = stdin.lock();
-    let mut lox = rlox::Lox::new();
+    let mut lox = rlox::Lox::default();
     let path = Path::new("(REPL)");
 
     println!("RLox 1.0 (interactive mode)");
@@ -64,7 +64,7 @@ fn run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
         }
     };
 
-    let mut lox = rlox::Lox::new();
+    let mut lox = rlox::Lox::default();
     match lox.run(file.as_ref(), &script) {
         Ok((_, Status::Terminated(exit_status))) => exit_status,
         Ok(_)                                    => 0,

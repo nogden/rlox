@@ -10,6 +10,7 @@ mod error;
 use std::{
     fmt,
     path::Path,
+    io::{self, Write},
     error::Error
 };
 
@@ -29,13 +30,11 @@ pub enum Status {
     Terminated(i32),
 }
 
-pub struct Lox;
+pub struct Lox<T: Write> {
+    pub stdout: T
+}
 
-impl Lox {
-    pub fn new() -> Lox {
-        Lox {}
-    }
-
+impl<T: Write> Lox<T> {
     pub fn run<'s>(
         &mut self, _file: &Path, source_code: &'s str
     ) -> LoxResult<'s, (Option<Value>, Status)> {
@@ -43,9 +42,16 @@ impl Lox {
         use interpreter::Evaluate;
 
         let ast = parser::parse(source_code.tokens())?;
-        let value = ast.evaluate()?;
+        let mut env = interpreter::Environment { stdout: &mut self.stdout };
+        let value = ast.evaluate(&mut env)?;
 
         Ok((value, Status::AwaitingInput))
+    }
+}
+
+impl Default for Lox<io::Stdout> {
+    fn default() -> Self {
+        Lox { stdout: io::stdout() }
     }
 }
 

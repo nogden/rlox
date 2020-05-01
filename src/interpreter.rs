@@ -1,3 +1,5 @@
+use std::io;
+
 use thiserror::Error;
 
 use crate::{
@@ -6,11 +8,15 @@ use crate::{
 };
 
 pub trait Evaluate<'s> {
-    fn evaluate(&self) -> EvalResult<'s>;
+    fn evaluate(&self, env: &mut Environment) -> EvalResult<'s>;
 }
 
 type EvalResult<'s> = Result<Option<Value>, RuntimeError<'s>>;
 type ExprResult<'s> = Result<Value, RuntimeError<'s>>;
+
+pub struct Environment<'b> {
+    pub stdout: &'b mut dyn io::Write
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -63,10 +69,10 @@ impl fmt::Display for Value {
 }
 
 impl<'s> Evaluate<'s> for Ast<'s> {
-    fn evaluate(&self) -> EvalResult<'s> {
+    fn evaluate(&self, env: &mut Environment) -> EvalResult<'s> {
         let mut last_value = None;
         for statement in self.statements() {
-            last_value = eval_statement(statement, self)?
+            last_value = eval_statement(statement, self, env)?
         }
 
         Ok(last_value)
@@ -74,15 +80,20 @@ impl<'s> Evaluate<'s> for Ast<'s> {
 }
 
 fn eval_statement<'s>(
-    statement: &Statement, ast: &Ast<'s>
+    statement: &Statement, ast: &Ast<'s>, env: &mut Environment
 ) -> EvalResult<'s> {
+    use Value::*;
+
     match statement {
         Expression(expression) =>
             eval_expression(ast.expression(*expression), ast).map(|v| Some(v)),
 
         Print(expression) => {
-            let result = eval_expression(ast.expression(*expression), ast)?;
-            println!("{}", result);
+            let _ = match eval_expression(ast.expression(*expression), ast)? {
+                String(s) => writeln!(env.stdout, "{}", s),
+                result    => writeln!(env.stdout, "{}", result)
+            };
+
             Ok(None)
         }
     }
