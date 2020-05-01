@@ -42,7 +42,7 @@ impl<T: Write> Lox<T> {
         use interpreter::Evaluate;
 
         let ast = parser::parse(source_code.tokens())?;
-        let mut env = interpreter::Environment { stdout: &mut self.stdout };
+        let mut env = interpreter::Environment::new(&mut self.stdout);
         let value = ast.evaluate(&mut env)?;
 
         Ok((value, Status::AwaitingInput))

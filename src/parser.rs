@@ -9,14 +9,15 @@ use Expression::*;
 
 #[derive(Clone, Debug)]
 pub struct Ast<'s> {
-    statements: Vec<Statement>,
+    statements: Vec<Statement<'s>>,
     expressions: Vec<Expression<'s>>
 }
 
 #[derive(Clone, Debug)]
-pub enum Statement {
+pub enum Statement<'s> {
     Expression(ExprIndex),
     Print(ExprIndex),
+    Var(Token<'s>, Option<ExprIndex>),
 }
 
 #[derive(Clone, Debug)]
@@ -25,10 +26,11 @@ pub enum Expression<'s> {
     Unary(Token<'s>, ExprIndex),
     Grouping(ExprIndex),
     Literal(Token<'s>),
+    Variable(Token<'s>),
 }
 
 type ExprIndex = usize;  // A reference to an expression in the Ast
-type StmtResult<'s> = Result<Option<Statement>, ParseError<'s>>;
+type StmtResult<'s> = Result<Option<Statement<'s>>, ParseError<'s>>;
 
 pub fn parse<'s, 'i>(
     tokens: impl IntoIterator<Item = Result<Token<'s>, ParseError<'s>>> + 'i
@@ -46,7 +48,7 @@ impl<'s> Ast<'s> {
         &self.expressions[index]
     }
 
-    pub fn statements(&self) -> impl Iterator<Item = &Statement> {
+    pub fn statements(&self) -> impl Iterator<Item = &Statement<'s>> {
         self.statements.iter()
     }
 }
@@ -62,7 +64,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         let mut errors = Vec::new();
 
         loop {
-            match self.statement() {
+            match self.declaration() {
                 Ok(Some(statement)) => statements.push(statement),
 
                 Err(error) => {
@@ -79,6 +81,14 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                     return Err(errors)
                 }
             }
+        }
+    }
+
+    fn peek(&mut self) -> Result<Option<&Token<'s>>, ParseError<'s>> {
+        match self.tokens.peek() {
+            Some(Ok(token)) => Ok(Some(token)),
+            Some(Err(error)) => Err(error.clone()),
+            None => Ok(None)
         }
     }
 
@@ -126,20 +136,52 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         index
     }
 
+    fn declaration(& mut self) -> StmtResult<'s> {
+        if let Some(Token { token_type: Var, .. }) = self.peek()? {
+            self.advance();
+            self.var_declaration()
+        } else {
+            self.statement()
+        }
+    }
+
+    fn var_declaration(&mut self) -> StmtResult<'s> {
+        let ident = match self.peek()? {
+            Some(ident @ Token { token_type: Identifier(_), .. }) => *ident,
+            Some(unexpected_token) => return Err(UnexpectedToken {
+                token: *unexpected_token,
+                expected: "identifier"
+            }),
+            None => unreachable!("Should have hit Eof")
+        };
+
+        self.advance();
+        let initialiser = if let Some(Token {
+            token_type: Equal, ..
+        }) = self.peek()? {
+            self.advance();
+            Some(self.expression()?)
+        } else {
+            None
+        };
+
+        self.consume_semicolon()?;
+
+        Ok(Some(Statement::Var(ident, initialiser)))
+    }
+
     fn statement(&mut self) -> StmtResult<'s> {
-        match self.tokens.peek() {
-            Some(Ok(Token { token_type: Print, .. })) => {
+        match self.peek()? {
+            Some(Token { token_type: Print, .. }) => {
                 self.advance();
                 self.print_statement()
             },
 
-            Some(Ok(Token { token_type: Eof, .. })) => Ok(None),
+            Some(Token { token_type: Eof, .. }) => Ok(None),
 
-            Some(Ok(_)) => self.expression_statement(),
+            Some(_) => self.expression_statement(),
 
-            Some(Err(error)) => Err(error.clone()),
-
-            None => unreachable!("Should have terminated at Eof token")
+            None => unreachable!("Should have hit Eof")
         }
     }
 
@@ -164,9 +206,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn equality(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let mut expr = self.comparison()?;
 
-        while let Some(Ok(token @ Token {
+        while let Some(token @ Token {
             token_type: EqualEqual | BangEqual, ..
-        })) = self.tokens.peek() {
+        }) = self.peek()? {
             let operator = *token;
             self.advance();
             let right = self.comparison()?;
@@ -179,9 +221,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn comparison(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let mut expr = self.addition()?;
 
-        while let Some(Ok(token @ Token {
+        while let Some(token @ Token {
             token_type: Greater | GreaterEqual | Less | LessEqual, ..
-        })) = self.tokens.peek() {
+        }) = self.peek()? {
             let operator = *token;
             self.advance();
             let right = self.addition()?;
@@ -194,9 +236,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn addition(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let mut expr = self.multiplication()?;
 
-        while let Some(Ok(token @ Token {
+        while let Some(token @ Token {
             token_type: Minus | Plus, ..
-        })) = self.tokens.peek() {
+        }) = self.peek()? {
             let operator = *token;
             self.advance();
             let right = self.multiplication()?;
@@ -209,9 +251,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn multiplication(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let mut expr = self.unary()?;
 
-        while let Some(Ok(token @ Token {
+        while let Some(token @ Token {
             token_type: Slash | Star, ..
-        })) = self.tokens.peek() {
+        }) = self.peek()? {
             let operator = *token;
             self.advance();
             let right = self.unary()?;
@@ -222,9 +264,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn unary(&mut self) -> Result<ExprIndex, ParseError<'s>> {
-        if let Some(Ok(token @ Token {
+        if let Some(token @ Token {
             token_type: Bang | Minus, ..
-        })) = self.tokens.peek() {
+        }) = self.peek()? {
             let operator = *token;
             self.advance();
             let right = self.unary()?;
@@ -235,18 +277,16 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn primary(&mut self) -> Result<ExprIndex, ParseError<'s>> {
-        match self.tokens.peek() {
-            Some(Ok(token @ Token {
+        match self.peek()? {
+            Some(token @ Token {
                 token_type: False | True | Nil | Number(_) | String(_), ..
-            })) => {
+            }) => {
                 let literal = *token;
                 self.advance();
                 Ok(self.found(Literal(literal)))
             },
 
-            Some(Ok(token @ Token {
-                token_type: LeftParen, ..
-            })) => {
+            Some(token @ Token { token_type: LeftParen, .. }) => {
                 let opening_delimiter = *token;
                 self.advance();
                 let expr = self.expression()?;
@@ -257,14 +297,18 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 }
             },
 
-            Some(Ok(token)) => Err(UnexpectedToken {
+            Some(token @ Token { token_type: Identifier(_), .. }) => {
+                let ident = *token;
+                self.advance();
+                Ok(self.found(Variable(ident)))
+            }
+
+            Some(token) => Err(UnexpectedToken {
                 token: *token,
                 expected: "expression"
             }),
 
-            Some(Err(parse_error)) => Err(parse_error.clone()),
-
-            None => unreachable!("Should have terminated at Eof")
+            None => unreachable!("Should have hit Eof")
         }
     }
 }
@@ -297,12 +341,12 @@ impl<'s> fmt::Display for Ast<'s> {
                 Literal(token) => match token.token_type {
                     Number(n)     => write!(f, "{}", n),
                     String(s)     => write!(f, "\"{}\"", s),
-                    Identifier(i) => write!(f, "{}", i),
                     Nil           => write!(f, "nil"),
                     True          => write!(f, "true"),
                     False         => write!(f, "false"),
                     _             => write!(f, "<unprintable>")
-                }
+                },
+                Variable(token) => write!(f, "{}", token)
             }
         }
 
@@ -319,7 +363,8 @@ impl<'s> fmt::Display for Ast<'s> {
                     write!(f, "(print ")?;
                     print_expression(f, ast.expression(*expression), ast)?;
                     write!(f, ")")
-                }
+                },
+                Var(_ident, _initialiser) => todo!()
             }
         }
 

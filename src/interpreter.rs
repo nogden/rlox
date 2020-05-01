@@ -1,4 +1,7 @@
-use std::io;
+use std::{
+    io,
+    collections::HashMap,
+};
 
 use thiserror::Error;
 
@@ -7,15 +10,16 @@ use crate::{
     parser::{Ast, Expression, Expression::*, Statement, Statement::*}
 };
 
-pub trait Evaluate<'s> {
-    fn evaluate(&self, env: &mut Environment) -> EvalResult<'s>;
+pub trait Evaluate<'s, 'b> {
+    fn evaluate(&self, env: &mut Environment<'s, 'b>) -> EvalResult<'s>;
 }
 
 type EvalResult<'s> = Result<Option<Value>, RuntimeError<'s>>;
 type ExprResult<'s> = Result<Value, RuntimeError<'s>>;
 
-pub struct Environment<'b> {
-    pub stdout: &'b mut dyn io::Write
+pub struct Environment<'s, 'b> {
+    stdout: &'b mut dyn io::Write,
+    bindings: HashMap<&'s str, Value>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -41,7 +45,10 @@ pub enum RuntimeError<'s> {
         lhs: Value,
         rhs: Value,
         operator: Token<'s>
-    }
+    },
+
+    #[error("(line {}): Unresolved identifier '{0}'", .0.line)]
+    UnresolvedIdentifier(Token<'s>),
 }
 
 impl Value {
@@ -68,8 +75,26 @@ impl fmt::Display for Value {
     }
 }
 
-impl<'s> Evaluate<'s> for Ast<'s> {
-    fn evaluate(&self, env: &mut Environment) -> EvalResult<'s> {
+impl<'s, 'b> Environment<'s, 'b> {
+    pub fn new(stdout: &'b mut dyn io::Write) -> Environment<'s, 'b> {
+        Environment { stdout: stdout, bindings: HashMap::new() }
+    }
+
+    fn define(&mut self, identifier: &'s str, value: Value) {
+        let _ = self.bindings.insert(identifier, value);
+    }
+
+    fn resolve(&self, identifier: &Token<'s>) -> Result<Value, RuntimeError<'s>> {
+        if let Some(value) = self.bindings.get(identifier.lexeme) {
+            Ok(value.clone())
+        } else {
+            Err(RuntimeError::UnresolvedIdentifier(*identifier))
+        }
+    }
+}
+
+impl<'s, 'b> Evaluate<'s, 'b> for Ast<'s> {
+    fn evaluate(&self, env: &mut Environment<'s, 'b>) -> EvalResult<'s> {
         let mut last_value = None;
         for statement in self.statements() {
             last_value = eval_statement(statement, self, env)?
@@ -79,28 +104,40 @@ impl<'s> Evaluate<'s> for Ast<'s> {
     }
 }
 
-fn eval_statement<'s>(
-    statement: &Statement, ast: &Ast<'s>, env: &mut Environment
+fn eval_statement<'s, 'b>(
+    statement: &Statement<'s>, ast: &Ast<'s>, env: &mut Environment<'s, 'b>
 ) -> EvalResult<'s> {
     use Value::*;
 
     match statement {
         Expression(expression) =>
-            eval_expression(ast.expression(*expression), ast).map(|v| Some(v)),
+            eval_expression(ast.expression(*expression), ast, env)
+            .map(|v| Some(v)),
 
         Print(expression) => {
-            let _ = match eval_expression(ast.expression(*expression), ast)? {
+            match eval_expression(ast.expression(*expression), ast, env)? {
                 String(s) => writeln!(env.stdout, "{}", s),
                 result    => writeln!(env.stdout, "{}", result)
+            }.expect("Failed to write to stdout");
+
+            Ok(None)
+        },
+
+        Var(ident, initialiser) => {
+            let value = if let Some(initialiser) = initialiser {
+                eval_expression(ast.expression(*initialiser), ast, env)?
+            } else {
+                Nil
             };
+            env.define(ident.lexeme, value);
 
             Ok(None)
         }
     }
 }
 
-fn eval_expression<'s>(
-    expression: &Expression<'s>, ast: &Ast<'s>
+fn eval_expression<'s, 'b>(
+    expression: &Expression<'s>, ast: &Ast<'s>, env: &Environment<'s, 'b>
 ) -> ExprResult<'s> {
     use Value::*;
     use TokenType as TT;
@@ -115,10 +152,10 @@ fn eval_expression<'s>(
             _ => unreachable!("Literal other than number or string")
         },
         Grouping(expr) => {
-            eval_expression(ast.expression(*expr), ast)
+            eval_expression(ast.expression(*expr), ast, env)
         },
         Unary(token, rhs) => {
-            let value = eval_expression(ast.expression(*rhs), ast)?;
+            let value = eval_expression(ast.expression(*rhs), ast, env)?;
 
             match token.token_type {
                 TT::Minus => negate(&value, token),
@@ -127,8 +164,8 @@ fn eval_expression<'s>(
             }
         },
         Binary(lhs, token, rhs) => {
-            let left  = eval_expression(ast.expression(*lhs), ast)?;
-            let right = eval_expression(ast.expression(*rhs), ast)?;
+            let left  = eval_expression(ast.expression(*lhs), ast, env)?;
+            let right = eval_expression(ast.expression(*rhs), ast, env)?;
 
             match token.token_type {
                 TT::Greater      => greater(&left, &right, token),
@@ -143,7 +180,8 @@ fn eval_expression<'s>(
                 TT::Plus         => plus(&left, &right, token),
                 _ => unreachable!("Binary operator other than (+|-|*|/)")
             }
-        }
+        },
+        Variable(token) => env.resolve(token)
     }
 }
 
