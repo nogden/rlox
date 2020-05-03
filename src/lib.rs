@@ -8,11 +8,13 @@ mod interpreter;
 mod error;
 
 use std::{
-    fmt,
+    fmt, io,
     path::Path,
-    io::{self, Write},
-    error::Error
+    error::Error,
+    collections::HashMap,
 };
+
+use interpreter::RuntimeError;
 
 pub use interpreter::Value;
 
@@ -30,11 +32,16 @@ pub enum Status {
     Terminated(i32),
 }
 
-pub struct Lox<T: Write> {
-    pub stdout: T
+pub struct Lox<'io> {
+    pub stdout: &'io mut dyn io::Write,
+   bindings: HashMap<String, Value>,
 }
 
-impl<T: Write> Lox<T> {
+impl<'io> Lox<'io> {
+    pub fn new(stdout: &'io mut dyn io::Write) -> Lox<'io> {
+        Lox { stdout, bindings: HashMap::new() }
+    }
+
     pub fn run<'s>(
         &mut self, _file: &Path, source_code: &'s str
     ) -> LoxResult<'s, (Option<Value>, Status)> {
@@ -42,16 +49,29 @@ impl<T: Write> Lox<T> {
         use interpreter::Evaluate;
 
         let ast = parser::parse(source_code.tokens())?;
-        let mut env = interpreter::Environment::new(&mut self.stdout);
-        let value = ast.evaluate(&mut env)?;
+        let value = ast.evaluate(self)?;
 
         Ok((value, Status::AwaitingInput))
     }
 }
 
-impl Default for Lox<io::Stdout> {
-    fn default() -> Self {
-        Lox { stdout: io::stdout() }
+impl<'io> interpreter::Environment for Lox<'io> {
+    fn stdout(&mut self) -> &mut dyn io::Write {
+        self.stdout
+    }
+
+    fn define(&mut self, identifier: &str, value: Value) {
+        let _ = self.bindings.insert(identifier.to_owned(), value);
+    }
+
+    fn resolve<'s>(
+        &self, identifier: &token::Token<'s>
+    ) -> Result<Value, RuntimeError<'s>> {
+        if let Some(value) = self.bindings.get(identifier.lexeme) {
+            Ok(value.clone())
+        } else {
+            Err(RuntimeError::UnresolvedIdentifier(*identifier))
+        }
     }
 }
 

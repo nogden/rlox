@@ -1,7 +1,4 @@
-use std::{
-    io,
-    collections::HashMap,
-};
+use std::io;
 
 use thiserror::Error;
 
@@ -10,17 +7,22 @@ use crate::{
     parser::{Ast, Expression, Expression::*, Statement, Statement::*}
 };
 
-pub trait Evaluate<'s, 'b> {
-    fn evaluate(&self, env: &mut Environment<'s, 'b>) -> EvalResult<'s>;
+pub trait Evaluate<'s> {
+    fn evaluate(&self, env: &mut dyn Environment) -> EvalResult<'s>;
+}
+
+pub trait Environment {
+    fn stdout(&mut self) -> &mut dyn io::Write;
+
+    fn define(&mut self, identifier: &str, value: Value);
+
+    fn resolve<'s>(
+        &self, identifier: &Token<'s>
+    ) -> Result<Value, RuntimeError<'s>>;
 }
 
 type EvalResult<'s> = Result<Option<Value>, RuntimeError<'s>>;
 type ExprResult<'s> = Result<Value, RuntimeError<'s>>;
-
-pub struct Environment<'s, 'b> {
-    stdout: &'b mut dyn io::Write,
-    bindings: HashMap<&'s str, Value>,
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -75,26 +77,8 @@ impl fmt::Display for Value {
     }
 }
 
-impl<'s, 'b> Environment<'s, 'b> {
-    pub fn new(stdout: &'b mut dyn io::Write) -> Environment<'s, 'b> {
-        Environment { stdout: stdout, bindings: HashMap::new() }
-    }
-
-    fn define(&mut self, identifier: &'s str, value: Value) {
-        let _ = self.bindings.insert(identifier, value);
-    }
-
-    fn resolve(&self, identifier: &Token<'s>) -> Result<Value, RuntimeError<'s>> {
-        if let Some(value) = self.bindings.get(identifier.lexeme) {
-            Ok(value.clone())
-        } else {
-            Err(RuntimeError::UnresolvedIdentifier(*identifier))
-        }
-    }
-}
-
-impl<'s, 'b> Evaluate<'s, 'b> for Ast<'s> {
-    fn evaluate(&self, env: &mut Environment<'s, 'b>) -> EvalResult<'s> {
+impl<'s> Evaluate<'s> for Ast<'s> {
+    fn evaluate(&self, env: &mut dyn Environment) -> EvalResult<'s> {
         let mut last_value = None;
         for statement in self.statements() {
             last_value = eval_statement(statement, self, env)?
@@ -104,8 +88,8 @@ impl<'s, 'b> Evaluate<'s, 'b> for Ast<'s> {
     }
 }
 
-fn eval_statement<'s, 'b>(
-    statement: &Statement<'s>, ast: &Ast<'s>, env: &mut Environment<'s, 'b>
+fn eval_statement<'s>(
+    statement: &Statement<'s>, ast: &Ast<'s>, env: &mut dyn Environment
 ) -> EvalResult<'s> {
     use Value::*;
 
@@ -116,8 +100,8 @@ fn eval_statement<'s, 'b>(
 
         Print(expression) => {
             match eval_expression(ast.expression(*expression), ast, env)? {
-                String(s) => writeln!(env.stdout, "{}", s),
-                result    => writeln!(env.stdout, "{}", result)
+                String(s) => writeln!(env.stdout(), "{}", s),
+                result    => writeln!(env.stdout(), "{}", result)
             }.expect("Failed to write to stdout");
 
             Ok(None)
@@ -136,8 +120,8 @@ fn eval_statement<'s, 'b>(
     }
 }
 
-fn eval_expression<'s, 'b>(
-    expression: &Expression<'s>, ast: &Ast<'s>, env: &Environment<'s, 'b>
+fn eval_expression<'s>(
+    expression: &Expression<'s>, ast: &Ast<'s>, env: &dyn Environment
 ) -> ExprResult<'s> {
     use Value::*;
     use TokenType as TT;

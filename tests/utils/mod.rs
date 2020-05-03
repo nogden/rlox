@@ -2,7 +2,10 @@
 
 extern crate rlox;
 
-use std::path::Path;
+use std::{
+    path::Path,
+    io,
+};
 
 use rlox::{Lox, Value};
 
@@ -16,8 +19,9 @@ macro_rules! lox_stdout {
     ( $( $code:tt )+ ) => { output_of(stringify!($( $code )*)) }
 }
 
-pub fn result_of(code_snippet: &str) -> Option<Value> {
-    let mut lox = Lox::default();
+pub fn result_of(code_snippet: &str) -> Option<Value>{
+    let stdout = &mut io::stdout();
+    let mut lox = Lox::new(stdout);
 
     match lox.run(Path::new("test_code"), code_snippet) {
         Ok((value, _)) => value,
@@ -28,11 +32,11 @@ pub fn result_of(code_snippet: &str) -> Option<Value> {
 }
 
 pub fn output_of(code_snippet: &str) -> String {
-    let mut output_buffer: Vec<u8> = Vec::new();
-    let mut lox = Lox { stdout: &mut output_buffer };
+    let mut fake_std_out: Vec<u8> = Vec::new();
+    let mut lox = Lox::new(&mut fake_std_out);
 
     match lox.run(Path::new("test_code"), code_snippet) {
-        Ok(_) => String::from_utf8(output_buffer)
+        Ok(_) => String::from_utf8(fake_std_out)
             .expect("Output contained invalid UTF-8"),
         Err(error) => panic!(
             "Lox code '{}' raised error: '{}'", code_snippet, error
