@@ -64,6 +64,17 @@ impl<'io> interpreter::Environment for Lox<'io> {
         let _ = self.bindings.insert(identifier.to_owned(), value);
     }
 
+    fn assign<'s>(
+        &mut self, identifier: &token::Token<'s>, value: Value
+    ) -> Result<(), RuntimeError<'s>> {
+        if let Some(bound_value) = self.bindings.get_mut(identifier.lexeme) {
+            *bound_value = value;
+            Ok(())
+        } else {
+            Err(RuntimeError::UnresolvedIdentifier(*identifier))
+        }
+    }
+
     fn resolve<'s>(
         &self, identifier: &token::Token<'s>
     ) -> Result<Value, RuntimeError<'s>> {

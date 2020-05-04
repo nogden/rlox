@@ -27,6 +27,7 @@ pub enum Expression<'s> {
     Grouping(ExprIndex),
     Literal(Token<'s>),
     Variable(Token<'s>),
+    Assign(Token<'s>, ExprIndex),
 }
 
 type ExprIndex = usize;  // A reference to an expression in the Ast
@@ -200,7 +201,25 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn expression(&mut self) -> Result<ExprIndex, ParseError<'s>> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+        let expression = self.equality()?;
+
+        if let Some(token @ Token { token_type: Equal, .. }) = self.peek()? {
+            let assignment = *token;
+            self.advance();
+            let value = self.assignment()?;
+
+            if let Variable(ident) = self.expressions[expression] {
+                return Ok(self.found(Assign(ident, value)))
+            }
+
+            return Err(InvalidAssignmentTarget(assignment))
+        }
+
+        Ok(expression)
     }
 
     fn equality(&mut self) -> Result<ExprIndex, ParseError<'s>> {
@@ -346,7 +365,12 @@ impl<'s> fmt::Display for Ast<'s> {
                     False         => write!(f, "false"),
                     _             => write!(f, "<unprintable>")
                 },
-                Variable(token) => write!(f, "{}", token)
+                Variable(token) => write!(f, "{}", token),
+                Assign(target, expression) => {
+                    write!(f, "(define {}", target)?;
+                    print_expression(f, ast.expression(*expression), ast)?;
+                    write!(f, ")")
+                }
             }
         }
 

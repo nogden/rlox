@@ -27,5 +27,8 @@ pub enum ParseError<'s> {
     UnexpectedToken {
         token: Token<'s>,
         expected: &'static str
-    }
+    },
+
+    #[error("(line {}): Invalid assignment target '{0}'", .0.line)]
+    InvalidAssignmentTarget(Token<'s>),
 }

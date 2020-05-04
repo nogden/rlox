@@ -16,6 +16,10 @@ pub trait Environment {
 
     fn define(&mut self, identifier: &str, value: Value);
 
+    fn assign<'s>(
+        &mut self, identifier: &Token<'s>, value: Value
+    ) -> Result<(), RuntimeError<'s>>;
+
     fn resolve<'s>(
         &self, identifier: &Token<'s>
     ) -> Result<Value, RuntimeError<'s>>;
@@ -121,7 +125,7 @@ fn eval_statement<'s>(
 }
 
 fn eval_expression<'s>(
-    expression: &Expression<'s>, ast: &Ast<'s>, env: &dyn Environment
+    expression: &Expression<'s>, ast: &Ast<'s>, env: &mut dyn Environment
 ) -> ExprResult<'s> {
     use Value::*;
     use TokenType as TT;
@@ -165,7 +169,12 @@ fn eval_expression<'s>(
                 _ => unreachable!("Binary operator other than (+|-|*|/)")
             }
         },
-        Variable(token) => env.resolve(token)
+        Variable(token) => env.resolve(token),
+        Assign(variable, expression) => {
+            let value = eval_expression(ast.expression(*expression), ast, env)?;
+            env.assign(variable, value.clone())?;
+            Ok(value)
+        }
     }
 }
 
