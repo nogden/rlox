@@ -18,6 +18,7 @@ pub enum Statement<'s> {
     Expression(ExprIndex),
     Print(ExprIndex),
     Var(Token<'s>, Option<ExprIndex>),
+    Block(Vec<StmtIndex>),
 }
 
 #[derive(Clone, Debug)]
@@ -31,6 +32,7 @@ pub enum Expression<'s> {
 }
 
 type ExprIndex = usize;  // A reference to an expression in the Ast
+type StmtIndex = usize; // A reference to a statement in the Ast
 type StmtResult<'s> = Result<Option<Statement<'s>>, ParseError<'s>>;
 
 pub fn parse<'s, 'i>(
@@ -47,6 +49,10 @@ pub fn parse<'s, 'i>(
 impl<'s> Ast<'s> {
     pub fn expression(&self, index: ExprIndex) -> &Expression<'s> {
         &self.expressions[index]
+    }
+
+    pub fn statement(&self, index: StmtIndex) -> &Statement<'s> {
+        &self.statements[index]
     }
 
     pub fn statements(&self) -> impl Iterator<Item = &Statement<'s>> {
@@ -367,7 +373,7 @@ impl<'s> fmt::Display for Ast<'s> {
                 },
                 Variable(token) => write!(f, "{}", token),
                 Assign(target, expression) => {
-                    write!(f, "(define {}", target)?;
+                    write!(f, "(set {} ", target)?;
                     print_expression(f, ast.expression(*expression), ast)?;
                     write!(f, ")")
                 }
@@ -380,16 +386,31 @@ impl<'s> fmt::Display for Ast<'s> {
             use Statement::*;
 
             match statement {
-                Expression(expression) => print_expression(
-                    f, ast.expression(*expression), ast
-                ),
+                Expression(expression) => {
+                    print_expression(f, ast.expression(*expression), ast)?;
+                },
                 Print(expression) => {
                     write!(f, "(print ")?;
                     print_expression(f, ast.expression(*expression), ast)?;
-                    write!(f, ")")
+                    write!(f, ")")?;
                 },
-                Var(_ident, _initialiser) => todo!()
+                Var(ident, initialiser) => {
+                    write!(f, "(define {}", ident)?;
+                    if let Some(expr) = initialiser {
+                        write!(f, " ")?;
+                        print_expression(f, ast.expression(*expr), ast)?;
+                    }
+                    write!(f, ")")?;
+                },
+                Block(statements) => {
+                    writeln!(f, "(scope ")?;
+                    for statement in statements {
+                        print_statement(f, ast.statement(*statement), ast)?;
+                    }
+                    write!(f, ")")?;
+                }
             }
+            write!(f, "\n")
         }
 
         for statement in &self.statements {

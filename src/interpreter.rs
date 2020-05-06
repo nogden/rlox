@@ -118,7 +118,9 @@ fn eval_statement<'s>(
             env.define(ident.lexeme, value);
 
             Ok(None)
-        }
+        },
+
+        Block(_statements) => todo!()
     }
 }
 
