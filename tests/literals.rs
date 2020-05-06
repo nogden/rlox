@@ -29,7 +29,33 @@ fn literals_evaluate_to_themselves() {
 }
 
 #[test]
-fn simple_arithmatic() {
+fn values_compare_equal_iff_they_are_of_the_same_type_and_magnitude() {
+    let literals = ["nil", "true", "false", r#""hello""#, "10.5", "6", r#""""#];
+
+    for (i, a) in literals.iter().enumerate() {
+        for (j, b) in literals.iter().enumerate() {
+            assert_eq!(Some(Boolean(i == j)),   result_of(&format!("{} == {}", a, b)));
+            assert_eq!(Some(Boolean(i != j)),   result_of(&format!("{} != {}", a, b)));
+        }
+    }
+}
+
+#[test]
+fn numbers_are_ordered_by_magnitude() {
+    let numbers = ["0", "0.1", "0.5", "1", "2", "2.5", "2.55", "3.8", "3.81"];
+
+    for (i, a) in numbers.iter().enumerate() {
+        for (j, b) in numbers.iter().enumerate() {
+            assert_eq!(Some(Boolean(i > j)),    result_of(&format!("{} > {}", a, b)));
+            assert_eq!(Some(Boolean(i < j)),    result_of(&format!("{} < {}", a, b)));
+            assert_eq!(Some(Boolean(i >= j)),   result_of(&format!("{} >= {}", a, b)));
+            assert_eq!(Some(Boolean(i <= j)),   result_of(&format!("{} <= {}", a, b)));
+        }
+    }
+}
+
+#[test]
+fn numbers_support_arithmatic() {
     use std::f64::INFINITY;
 
     assert_eq!(Some(Number(0.0)),               lox!(   0 + 0           ));
@@ -56,36 +82,29 @@ fn simple_arithmatic() {
 }
 
 #[test]
-fn string_concatenation() {
+fn expressions_can_be_chained() {
+    assert_eq!(Some(Number(1.5)),               lox!( 2 * 3 / 4         ));
+    assert_eq!(Some(string(" ..")),             lox!( "" + " " + ".."   ));
+    assert_eq!(Some(Boolean(true)),             lox!( 1 > 2 < true      ));
+}
+
+#[test]
+fn groups_have_highest_precidence() {
+    assert_eq!(Some(Number(9.0)),               lox!( (1 + 2) * (1 + 2) ));
+    assert_eq!(Some(Number(5.0)),               lox!(  1 + (2 * 1) + 2  ));
+}
+
+#[test]
+#[should_panic(expected = "Unterminated string")]
+fn unterminated_strings_report_an_error() {
+    let _ = result_of(r#" "unterminated string "#);
+}
+
+#[test]
+fn strings_can_be_concatenated() {
     assert_eq!(Some(string("")),                lox!( "" + ""           ));
     assert_eq!(Some(string(" ")),               lox!( "" + " "          ));
     assert_eq!(Some(string(" hello ")),         lox!( " hel" + "lo "    ));
-}
-
-#[test]
-fn values_compare_equal_iff_they_are_of_the_same_type_and_magnitude() {
-    let literals = ["nil", "true", "false", r#""hello""#, "10.5", "6", r#""""#];
-
-    for (i, a) in literals.iter().enumerate() {
-        for (j, b) in literals.iter().enumerate() {
-            assert_eq!(Some(Boolean(i == j)),   result_of(&format!("{} == {}", a, b)));
-            assert_eq!(Some(Boolean(i != j)),   result_of(&format!("{} != {}", a, b)));
-        }
-    }
-}
-
-#[test]
-fn numbers_are_ordered_by_magnitude() {
-    let numbers = ["0", "0.1", "0.5", "1", "2", "2.5", "2.55", "3.8", "3.81"];
-
-    for (i, a) in numbers.iter().enumerate() {
-        for (j, b) in numbers.iter().enumerate() {
-            assert_eq!(Some(Boolean(i > j)),    result_of(&format!("{} > {}", a, b)));
-            assert_eq!(Some(Boolean(i < j)),    result_of(&format!("{} < {}", a, b)));
-            assert_eq!(Some(Boolean(i >= j)),   result_of(&format!("{} >= {}", a, b)));
-            assert_eq!(Some(Boolean(i <= j)),   result_of(&format!("{} <= {}", a, b)));
-        }
-    }
 }
 
 #[test]
@@ -114,17 +133,4 @@ fn true_is_greater_than_false() {
             assert_eq!(Some(Boolean(i <= j)),   result_of(&format!(r#""{}" <= "{}""#, a, b)));
         }
     }
-}
-
-#[test]
-fn expressions_can_be_chained() {
-    assert_eq!(Some(Number(1.5)),               lox!( 2 * 3 / 4         ));
-    assert_eq!(Some(string(" ..")),             lox!( "" + " " + ".."   ));
-    assert_eq!(Some(Boolean(true)),             lox!( 1 > 2 < true      ));
-}
-
-#[test]
-fn groups_have_highest_precidence() {
-    assert_eq!(Some(Number(9.0)),               lox!( (1 + 2) * (1 + 2) ));
-    assert_eq!(Some(Number(5.0)),               lox!(  1 + (2 * 1) + 2  ));
 }
