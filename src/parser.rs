@@ -31,8 +31,12 @@ pub enum Expression<'s> {
     Assign(Token<'s>, ExprIndex),
 }
 
-type ExprIndex = usize;  // A reference to an expression in the Ast
-type StmtIndex = usize; // A reference to a statement in the Ast
+#[derive(Clone, Copy, Debug)]
+pub struct ExprIndex(usize);  // A reference to an expression in the Ast
+
+#[derive(Clone, Copy, Debug)]
+pub struct StmtIndex(usize);  // A reference to a statement in the Ast
+
 type StmtResult<'s> = Result<Option<Statement<'s>>, ParseError<'s>>;
 
 pub fn parse<'s, 'i>(
@@ -48,11 +52,11 @@ pub fn parse<'s, 'i>(
 
 impl<'s> Ast<'s> {
     pub fn expression(&self, index: ExprIndex) -> &Expression<'s> {
-        &self.expressions[index]
+        &self.expressions[index.0]
     }
 
     pub fn statement(&self, index: StmtIndex) -> &Statement<'s> {
-        &self.statements[index]
+        &self.statements[index.0]
     }
 
     pub fn statements(&self) -> impl Iterator<Item = &Statement<'s>> {
@@ -140,7 +144,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn found(&mut self, expression: Expression<'s>) -> ExprIndex {
         let index = self.expressions.len();
         self.expressions.push(expression);
-        index
+        ExprIndex(index)
     }
 
     fn declaration(& mut self) -> StmtResult<'s> {
@@ -218,7 +222,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             self.advance();
             let value = self.assignment()?;
 
-            if let Variable(ident) = self.expressions[expression] {
+            if let Variable(ident) = self.expressions[expression.0] {
                 return Ok(self.found(Assign(ident, value)))
             }
 
