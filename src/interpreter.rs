@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, collections::HashMap};
 
 use thiserror::Error;
 
@@ -90,6 +90,44 @@ impl<'s> Evaluate<'s> for Ast<'s> {
     }
 }
 
+struct Scope<'p> {
+    parent: &'p mut dyn Environment,
+    bindings: HashMap<String, Value>,
+}
+
+impl<'p> Scope<'p> {
+    fn new(parent_scope: &'p mut dyn Environment) -> Scope<'p> {
+        Scope { parent: parent_scope, bindings: HashMap::new() }
+    }
+}
+
+impl<'p> Environment for Scope<'p> {
+    fn stdout(&mut self) -> &mut dyn io::Write {
+        self.parent.stdout()
+    }
+
+    fn define(&mut self, identifier: &str, value: Value) {
+        let _ = self.bindings.insert(identifier.to_owned(), value);
+    }
+
+    fn assign<'s>(
+        &mut self, identifier: &Token<'s>, value: Value
+    ) -> Result<(), RuntimeError<'s>> {
+        if let Some(bound_value) = self.bindings.get_mut(identifier.lexeme) {
+            *bound_value = value;
+            Ok(())
+        } else {
+            self.parent.assign(identifier, value)
+        }
+    }
+
+    fn resolve(&self, identifier: &Token) -> Option<Value> {
+        self.bindings.get(identifier.lexeme).cloned().or_else(||
+            self.parent.resolve(identifier)
+        )
+    }
+}
+
 fn eval_statement<'s>(
     statement: &Statement<'s>, ast: &Ast<'s>, env: &mut dyn Environment
 ) -> EvalResult<'s> {
@@ -120,7 +158,16 @@ fn eval_statement<'s>(
             Ok(None)
         },
 
-        Block(_statements) => todo!()
+        Block(statements) => {
+            let mut scope = Scope::new(env);
+            let mut last_value = None;
+
+            for statement in statements {
+                last_value = eval_statement(statement, ast, &mut scope)?;
+            }
+
+            Ok(last_value)
+        }
     }
 }
 

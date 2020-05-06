@@ -18,7 +18,7 @@ pub enum Statement<'s> {
     Expression(ExprIndex),
     Print(ExprIndex),
     Var(Token<'s>, Option<ExprIndex>),
-    Block(Vec<StmtIndex>),
+    Block(Vec<Statement<'s>>),
 }
 
 #[derive(Clone, Debug)]
@@ -188,6 +188,12 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 self.print_statement()
             },
 
+            Some(token @ Token { token_type: LeftBrace, .. }) => {
+                let opening_brace = *token;
+                self.advance();
+                self.block(opening_brace)
+            },
+
             Some(Token { token_type: Eof, .. }) => Ok(None),
 
             Some(_) => self.expression_statement(),
@@ -201,6 +207,30 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         self.consume_semicolon()?;
 
         Ok(Some(Statement::Print(expression)))
+    }
+
+    fn block(&mut self, opening_brace: Token<'s>) -> StmtResult<'s> {
+        let mut statements = Vec::new();
+
+        loop {
+            match self.peek()? {
+                Some(Token { token_type: RightBrace, ..}) => {
+                    self.advance();
+                    return Ok(Some(Statement::Block(statements)))
+                },
+                Some(eof @ Token { token_type: Eof, .. }) => {
+                    return Err(UnmatchedDelimiter {
+                        opening_delimiter: opening_brace,
+                        token: *eof
+                    })
+                }
+                _ => {
+                    if let Some(statement) = self.declaration()? {
+                        statements.push(statement);
+                    }
+                }
+            }
+        }
     }
 
     fn expression_statement(&mut self) -> StmtResult<'s> {
@@ -409,7 +439,7 @@ impl<'s> fmt::Display for Ast<'s> {
                 Block(statements) => {
                     writeln!(f, "(scope ")?;
                     for statement in statements {
-                        print_statement(f, ast.statement(*statement), ast)?;
+                        print_statement(f, statement, ast)?;
                     }
                     write!(f, ")")?;
                 }
