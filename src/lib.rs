@@ -75,14 +75,8 @@ impl<'io> interpreter::Environment for Lox<'io> {
         }
     }
 
-    fn resolve<'s>(
-        &self, identifier: &token::Token<'s>
-    ) -> Result<Value, RuntimeError<'s>> {
-        if let Some(value) = self.bindings.get(identifier.lexeme) {
-            Ok(value.clone())
-        } else {
-            Err(RuntimeError::UnresolvedIdentifier(*identifier))
-        }
+    fn resolve(&self, identifier: &token::Token) -> Option<Value> {
+        self.bindings.get(identifier.lexeme).cloned()
     }
 }
 

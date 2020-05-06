@@ -20,9 +20,7 @@ pub trait Environment {
         &mut self, identifier: &Token<'s>, value: Value
     ) -> Result<(), RuntimeError<'s>>;
 
-    fn resolve<'s>(
-        &self, identifier: &Token<'s>
-    ) -> Result<Value, RuntimeError<'s>>;
+    fn resolve(&self, identifier: &Token) -> Option<Value>;
 }
 
 type EvalResult<'s> = Result<Option<Value>, RuntimeError<'s>>;
@@ -169,7 +167,10 @@ fn eval_expression<'s>(
                 _ => unreachable!("Binary operator other than (+|-|*|/)")
             }
         },
-        Variable(token) => env.resolve(token),
+        Variable(identifier) => match env.resolve(identifier) {
+            Some(value) => Ok(value),
+            None        => Err(RuntimeError::UnresolvedIdentifier(*identifier))
+        },
         Assign(variable, expression) => {
             let value = eval_expression(ast.expression(*expression), ast, env)?;
             env.assign(variable, value.clone())?;
