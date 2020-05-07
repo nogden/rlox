@@ -23,7 +23,7 @@ pub enum ParseError<'s> {
         opening_delimiter: Token<'s>
     },
 
-    #[error("(line {}): Expected {}, found {token}", token.line, expected)]
+    #[error("(line {}): Expected {}, found '{token}'", token.line, expected)]
     UnexpectedToken {
         token: Token<'s>,
         expected: &'static str

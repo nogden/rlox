@@ -18,3 +18,15 @@ fn print_statements_evaluate_expressions_and_print_the_result() {
     assert_eq!("true\n",                  lox_stdout!( print 2 > 1         ));
     assert_eq!("false\n",                 lox_stdout!( print 7 <= 6        ));
 }
+
+#[test]
+#[should_panic(expected = "Missing closing delimiter")]
+fn unclosed_blocks_raise_an_error() {
+    result_of(r#" { "#);
+}
+
+#[test]
+#[should_panic(expected = "Expected expression, found '}'")]
+fn unopened_blocks_raise_an_error() {
+    result_of(r#" } "#);
+}

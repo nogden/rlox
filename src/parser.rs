@@ -112,7 +112,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
             Some(Ok(token)) => Err(*token),  // Unexpected token
 
-            _ => panic!("Ran out of tokens to parse (should have hit Eof)")
+            _ => unreachable!("Should have hit Eof (in consume)")
         }
     }
 
@@ -128,15 +128,21 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn synchronise(&mut self) {
-        while let Some(Ok(token)) = self.tokens.next() {
-            if let Semicolon = token.token_type {
-               return
-            }
+        loop {
+            match self.peek() {
+                Ok(Some(Token { token_type: Semicolon, ..}))
+                    => return self.advance(),
 
-            if let Some(Ok(Token {
-                token_type: Class | Fun | Var | For | If | While | Print | Return, ..
-            })) = self.tokens.peek() {
-                return
+                Ok(Some(Token {
+                    token_type: Class | Fun | Var | For | If | While |
+                                Print | Return | Eof, ..
+                })) => return,
+
+                Ok(Some(_)) => self.advance(),
+
+                Ok(None) => return,
+
+                Err(_) => return self.advance()
             }
         }
     }
@@ -163,7 +169,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 token: *unexpected_token,
                 expected: "identifier"
             }),
-            None => unreachable!("Should have hit Eof")
+            None => unreachable!("Should have hit Eof (in var_declaration)")
         };
 
         self.advance();
@@ -198,7 +204,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
             Some(_) => self.expression_statement(),
 
-            None => unreachable!("Should have hit Eof")
+            None => unreachable!("Should have hit Eof (in statement)")
         }
     }
 
@@ -223,12 +229,13 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                         opening_delimiter: opening_brace,
                         token: *eof
                     })
-                }
-                _ => {
+                },
+                Some(_) => {
                     if let Some(statement) = self.declaration()? {
                         statements.push(statement);
                     }
-                }
+                },
+                None => unreachable!("Should have hit Eof (in block)")
             }
         }
     }
@@ -367,7 +374,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 expected: "expression"
             }),
 
-            None => unreachable!("Should have hit Eof")
+            None => unreachable!("Should have hit Eof (in primary)")
         }
     }
 }
