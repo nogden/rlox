@@ -138,6 +138,20 @@ fn eval_statement<'s>(
             eval_expression(ast.expression(*expression), ast, env)
             .map(|v| Some(v)),
 
+        If(condition, then_block, optional_else_block) => {
+            let condition_result = eval_expression(
+                ast.expression(*condition), ast, env
+            )?;
+
+            if condition_result.is_truthy() {
+                eval_statement(ast.statement(*then_block), ast, env)?;
+            } else if let Some(else_block) = optional_else_block {
+                eval_statement(ast.statement(*else_block), ast, env)?;
+            }
+
+            Ok(None)
+        },
+
         Print(expression) => {
             match eval_expression(ast.expression(*expression), ast, env)? {
                 String(s) => writeln!(env.stdout(), "{}", s),

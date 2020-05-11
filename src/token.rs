@@ -33,3 +33,51 @@ impl<'s> fmt::Display for Token<'s> {
         write!(f, "{}", self.lexeme)
     }
 }
+
+impl<'s> TokenType<'s> {
+    pub fn symbol(&self) -> &'static str {
+        use TokenType::*;
+
+        match self {
+            LeftParen     => "(",
+            RightParen    => ")",
+            LeftBrace     => "{",
+            RightBrace    => "}",
+            Comma         => ",",
+            Dot           => ".",
+            Minus         => "-",
+            Plus          => "+",
+            Semicolon     => ";",
+            Slash         => "/",
+            Star          => "*",
+            Bang          => "!",
+            BangEqual     => "!=",
+            Equal         => "=",
+            EqualEqual    => "==",
+            Greater       => ">",
+            GreaterEqual  => ">=",
+            Less          => "<",
+            LessEqual     => "<=",
+            Identifier(_) => "<identifier>",
+            String(_)     => "<string>",
+            Number(_)     => "<number>",
+            And           => "and",
+            Class         => "class",
+            Else          => "else",
+            False         => "false",
+            Fun           => "fun",
+            For           => "for",
+            If            => "if",
+            Nil           => "nil",
+            Or            => "or",
+            Print         => "print",
+            Return        => "return",
+            Super         => "super",
+            This          => "this",
+            True          => "true",
+            Var           => "var",
+            While         => "while",
+            Eof           => "EOF",
+        }
+    }
+}

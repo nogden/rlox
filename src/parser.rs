@@ -17,6 +17,7 @@ pub struct Ast<'s> {
 #[derive(Clone, Debug)]
 pub enum Statement<'s> {
     Expression(ExprIndex),
+    If(ExprIndex, StmtIndex, Option<StmtIndex>),
     Print(ExprIndex),
     Var(Token<'s>, Option<ExprIndex>),
     Block(Vec<StmtIndex>),
@@ -109,27 +110,35 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
     fn advance(&mut self) { let _ = self.tokens.next(); }
 
-    fn consume(&mut self, expected_token: TokenType) -> Result<(), Token<'s>> {
-        match self.tokens.peek() {
-            Some(Ok(Token { token_type: t, .. })) if *t == expected_token
-                => Ok(self.advance()),
+    fn consume(&mut self, expected: TokenType) -> Result<Token<'s>, ParseError<'s>> {
+        match self.peek()? {
+            Some(token) if token.token_type == expected => {
+                let found = *token;
+                self.advance();
+                Ok(found)
+            },
 
-            Some(Ok(token)) => Err(*token),  // Unexpected token
+            Some(other_token) => Err(UnexpectedToken {
+                token: *other_token, expected: expected.symbol()
+            }),
 
-            _ => unreachable!("Should have hit Eof (in consume)")
+            None => unreachable!("Should have hit Eof (in consume)")
         }
     }
 
-    fn consume_semicolon(&mut self) -> Result<(), ParseError<'s>> {
+    fn consume_terminator(&mut self) -> Result<(), ParseError<'s>> {
         match self.consume(Semicolon) {
             Ok(_) => Ok(()),
-            Err(Token { token_type: Eof, .. }) => Ok(()),
-            Err(unexpected_token) => Err(UnexpectedToken {
-                token: unexpected_token,
-                expected: "';'"
-            })
+
+            // We accept EOF as the final statement terminator, but don't
+            // consume it as it needs to be present to stop the parsing loop.
+            Err(UnexpectedToken { token: Token { token_type: Eof, ..}, .. })
+                => Ok(()),
+
+            Err(unexpected_token) => Err(unexpected_token)
         }
     }
+
 
     fn synchronise(&mut self) {
         loop {
@@ -146,7 +155,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
                 Ok(None) => return,
 
-                Err(_) => return self.advance()
+                Err(_) => return self.advance() // TODO(nick): Is this right?
             }
         }
     }
@@ -192,13 +201,18 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             None
         };
 
-        self.consume_semicolon()?;
+        self.consume_terminator()?;
 
         Ok(Some(self.found_stmt(Statement::Var(ident, initialiser))))
     }
 
     fn statement(&mut self) -> StmtResult<'s> {
         match self.peek()? {
+            Some(Token { token_type: If, .. }) => {
+                self.advance();
+                self.if_statement()
+            }
+
             Some(Token { token_type: Print, .. }) => {
                 self.advance();
                 self.print_statement()
@@ -218,9 +232,30 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         }
     }
 
+    fn if_statement(&mut self) -> StmtResult<'s> {
+        let condition = self.expression()?;
+        let opening_brace = self.consume(LeftBrace)?;
+        let then_branch = self.block(opening_brace)?
+            .ok_or(UnexpectedEndOfFile)?;
+
+        let else_branch = if let Some(Token {
+            token_type: Else, ..
+        }) = self.peek()? {
+            self.advance();
+            let opening_brace = self.consume(LeftBrace)?;
+            Some(self.block(opening_brace)?.ok_or(UnexpectedEndOfFile)?)
+        } else {
+            None
+        };
+
+        Ok(Some(self.found_stmt(
+            Statement::If(condition, then_branch, else_branch))
+        ))
+    }
+
     fn print_statement(&mut self) -> StmtResult<'s> {
         let expression = self.expression()?;
-        self.consume_semicolon()?;
+        self.consume_terminator()?;
 
         Ok(Some(self.found_stmt(Statement::Print(expression))))
     }
@@ -252,7 +287,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
     fn expression_statement(&mut self) -> StmtResult<'s> {
         let expression = self.expression()?;
-        self.consume_semicolon()?;
+        self.consume_terminator()?;
 
         Ok(Some(self.found_stmt(Statement::Expression(expression))))
     }
@@ -366,8 +401,12 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 let opening_delimiter = *token;
                 self.advance();
                 let expr = self.expression()?;
-                if let Err(token) = self.consume(RightParen) {
-                    Err(UnmatchedDelimiter { token, opening_delimiter })
+                if let Err(UnexpectedToken {
+                    token: unexpected_token, ..
+                }) = self.consume(RightParen) {
+                    Err(UnmatchedDelimiter {
+                        token: unexpected_token, opening_delimiter
+                    })
                 } else {
                     Ok(self.found_expr(Grouping(expr)))
                 }
@@ -440,6 +479,17 @@ impl<'s> fmt::Display for Ast<'s> {
                 Expression(expression) => {
                     print_expression(f, ast.expression(*expression), ast)?;
                 },
+                If(expression, then_block, optional_else_block) => {
+                    write!(f, "(if ")?;
+                    print_expression(f, ast.expression(*expression), ast)?;
+                    write!(f, " ")?;
+                    print_statement(f, ast.statement(*then_block), ast)?;
+                    if let Some(else_block) = optional_else_block {
+                        write!(f, " ")?;
+                        print_statement(f, ast.statement(*else_block), ast)?;
+                    }
+                    write!(f, ")")?;
+                }
                 Print(expression) => {
                     write!(f, "(print ")?;
                     print_expression(f, ast.expression(*expression), ast)?;

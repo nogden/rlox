@@ -30,3 +30,38 @@ fn unclosed_blocks_raise_an_error() {
 fn unopened_blocks_raise_an_error() {
     result_of(r#" } "#);
 }
+
+#[test]
+fn if_statements_evaluate_their_bodies_when_the_expression_is_truthy() {
+    let expected = "Shown\n";
+
+    assert_eq!(expected, lox_stdout!{
+        if false {
+            print "Hidden";
+        }
+
+        if true {
+            print "Shown";
+        }
+    });
+}
+
+#[test]
+fn if_statements_evaluate_their_else_bodies_when_the_expression_is_falsey() {
+    let expected = "Shown\n\
+                    Shown\n";
+
+    assert_eq!(expected, lox_stdout!{
+        if false {
+            print "Hidden";
+        } else {
+            print "Shown";
+        }
+
+        if true {
+            print "Shown";
+        } else {
+            print "Hidden";
+        }
+    });
+}
