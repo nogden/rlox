@@ -82,8 +82,8 @@ impl fmt::Display for Value {
 impl<'s> Evaluate<'s> for Ast<'s> {
     fn evaluate(&self, env: &mut dyn Environment) -> EvalResult<'s> {
         let mut last_value = None;
-        for statement in self.statements() {
-            last_value = eval_statement(statement, self, env)?
+        for statement in self.top_level_statements() {
+            last_value = eval_statement(self.statement(*statement), self, env)?;
         }
 
         Ok(last_value)
@@ -163,7 +163,9 @@ fn eval_statement<'s>(
             let mut last_value = None;
 
             for statement in statements {
-                last_value = eval_statement(statement, ast, &mut scope)?;
+                last_value = eval_statement(
+                    ast.statement(*statement), ast, &mut scope
+                )?;
             }
 
             Ok(last_value)

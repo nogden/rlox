@@ -9,6 +9,7 @@ use Expression::*;
 
 #[derive(Clone, Debug)]
 pub struct Ast<'s> {
+    top_level_statements: Vec<StmtIndex>,
     statements: Vec<Statement<'s>>,
     expressions: Vec<Expression<'s>>
 }
@@ -18,7 +19,7 @@ pub enum Statement<'s> {
     Expression(ExprIndex),
     Print(ExprIndex),
     Var(Token<'s>, Option<ExprIndex>),
-    Block(Vec<Statement<'s>>),
+    Block(Vec<StmtIndex>),
 }
 
 #[derive(Clone, Debug)]
@@ -37,13 +38,14 @@ pub struct ExprIndex(usize);  // A reference to an expression in the Ast
 #[derive(Clone, Copy, Debug)]
 pub struct StmtIndex(usize);  // A reference to a statement in the Ast
 
-type StmtResult<'s> = Result<Option<Statement<'s>>, ParseError<'s>>;
+type StmtResult<'s> = Result<Option<StmtIndex>, ParseError<'s>>;
 
 pub fn parse<'s, 'i>(
     tokens: impl IntoIterator<Item = Result<Token<'s>, ParseError<'s>>> + 'i
 ) -> Result<Ast<'s>, Vec<ParseError<'s>>> {
     let parser = Parser {
         tokens: tokens.into_iter().peekable(),
+        statements: Vec::new(),
         expressions: Vec::new()
     };
 
@@ -59,24 +61,25 @@ impl<'s> Ast<'s> {
         &self.statements[index.0]
     }
 
-    pub fn statements(&self) -> impl Iterator<Item = &Statement<'s>> {
-        self.statements.iter()
+    pub fn top_level_statements(&self) -> impl Iterator<Item = &StmtIndex> {
+        self.top_level_statements.iter()
     }
 }
 
 struct Parser<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> {
     tokens: iter::Peekable<I>,
+    statements: Vec<Statement<'s>>,
     expressions: Vec<Expression<'s>>,
 }
 
 impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn parse(mut self) -> Result<Ast<'s>, Vec<ParseError<'s>>> {
-        let mut statements = Vec::new();
+        let mut top_level_statements = Vec::new();
         let mut errors = Vec::new();
 
         loop {
             match self.declaration() {
-                Ok(Some(statement)) => statements.push(statement),
+                Ok(Some(statement)) => top_level_statements.push(statement),
 
                 Err(error) => {
                     errors.push(error);
@@ -84,8 +87,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 },
 
                 Ok(None) => if errors.is_empty() {
-                    return Ok(Ast {
-                        statements: statements,
+                     return Ok(Ast {
+                        top_level_statements,
+                        statements: self.statements,
                         expressions: self.expressions
                     })
                 } else {
@@ -147,7 +151,13 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         }
     }
 
-    fn found(&mut self, expression: Expression<'s>) -> ExprIndex {
+    fn found_stmt(&mut self, statement: Statement<'s>) -> StmtIndex {
+        let index = self.statements.len();
+        self.statements.push(statement);
+        StmtIndex(index)
+    }
+
+    fn found_expr(&mut self, expression: Expression<'s>) -> ExprIndex {
         let index = self.expressions.len();
         self.expressions.push(expression);
         ExprIndex(index)
@@ -184,7 +194,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
         self.consume_semicolon()?;
 
-        Ok(Some(Statement::Var(ident, initialiser)))
+        Ok(Some(self.found_stmt(Statement::Var(ident, initialiser))))
     }
 
     fn statement(&mut self) -> StmtResult<'s> {
@@ -212,7 +222,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         let expression = self.expression()?;
         self.consume_semicolon()?;
 
-        Ok(Some(Statement::Print(expression)))
+        Ok(Some(self.found_stmt(Statement::Print(expression))))
     }
 
     fn block(&mut self, opening_brace: Token<'s>) -> StmtResult<'s> {
@@ -222,7 +232,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             match self.peek()? {
                 Some(Token { token_type: RightBrace, ..}) => {
                     self.advance();
-                    return Ok(Some(Statement::Block(statements)))
+                    return Ok(Some(self.found_stmt(Statement::Block(statements))))
                 },
                 Some(eof @ Token { token_type: Eof, .. }) => {
                     return Err(UnmatchedDelimiter {
@@ -244,7 +254,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         let expression = self.expression()?;
         self.consume_semicolon()?;
 
-        Ok(Some(Statement::Expression(expression)))
+        Ok(Some(self.found_stmt(Statement::Expression(expression))))
     }
 
     fn expression(&mut self) -> Result<ExprIndex, ParseError<'s>> {
@@ -260,7 +270,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let value = self.assignment()?;
 
             if let Variable(ident) = self.expressions[expression.0] {
-                return Ok(self.found(Assign(ident, value)))
+                return Ok(self.found_expr(Assign(ident, value)))
             }
 
             return Err(InvalidAssignmentTarget(assignment))
@@ -278,7 +288,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.comparison()?;
-            expr = self.found(Binary(expr, operator, right))
+            expr = self.found_expr(Binary(expr, operator, right))
         }
 
         Ok(expr)
@@ -293,7 +303,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.addition()?;
-            expr = self.found(Binary(expr, operator, right))
+            expr = self.found_expr(Binary(expr, operator, right))
         }
 
         Ok(expr)
@@ -308,7 +318,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.multiplication()?;
-            expr = self.found(Binary(expr, operator, right))
+            expr = self.found_expr(Binary(expr, operator, right))
         }
 
         Ok(expr)
@@ -323,7 +333,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.unary()?;
-            expr = self.found(Binary(expr, operator, right))
+            expr = self.found_expr(Binary(expr, operator, right))
         }
 
         Ok(expr)
@@ -336,7 +346,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.unary()?;
-            return Ok(self.found(Unary(operator, right)))
+            return Ok(self.found_expr(Unary(operator, right)))
         }
 
         self.primary()
@@ -349,7 +359,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             }) => {
                 let literal = *token;
                 self.advance();
-                Ok(self.found(Literal(literal)))
+                Ok(self.found_expr(Literal(literal)))
             },
 
             Some(token @ Token { token_type: LeftParen, .. }) => {
@@ -359,14 +369,14 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 if let Err(token) = self.consume(RightParen) {
                     Err(UnmatchedDelimiter { token, opening_delimiter })
                 } else {
-                    Ok(self.found(Grouping(expr)))
+                    Ok(self.found_expr(Grouping(expr)))
                 }
             },
 
             Some(token @ Token { token_type: Identifier(_), .. }) => {
                 let ident = *token;
                 self.advance();
-                Ok(self.found(Variable(ident)))
+                Ok(self.found_expr(Variable(ident)))
             }
 
             Some(token) => Err(UnexpectedToken {
@@ -446,7 +456,7 @@ impl<'s> fmt::Display for Ast<'s> {
                 Block(statements) => {
                     writeln!(f, "(scope ")?;
                     for statement in statements {
-                        print_statement(f, statement, ast)?;
+                        print_statement(f, ast.statement(*statement), ast)?;
                     }
                     write!(f, ")")?;
                 }
@@ -454,9 +464,10 @@ impl<'s> fmt::Display for Ast<'s> {
             write!(f, "\n")
         }
 
-        for statement in &self.statements {
-            print_statement(f, statement, self)?;
+        for statement in self.top_level_statements() {
+            print_statement(f, self.statement(*statement), self)?;
         }
+
         Ok(())
     }
 }
