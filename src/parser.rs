@@ -29,6 +29,7 @@ pub enum Expression<'s> {
     Unary(Token<'s>, ExprIndex),
     Grouping(ExprIndex),
     Literal(Token<'s>),
+    Logical(ExprIndex, Token<'s>, ExprIndex),
     Variable(Token<'s>),
     Assign(Token<'s>, ExprIndex),
 }
@@ -297,7 +298,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn assignment(&mut self) -> Result<ExprIndex, ParseError<'s>> {
-        let expression = self.equality()?;
+        let expression = self.or()?;
 
         if let Some(token @ Token { token_type: Equal, .. }) = self.peek()? {
             let assignment = *token;
@@ -314,8 +315,34 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         Ok(expression)
     }
 
+    fn or(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+        let mut expression = self.and()?;
+
+        while let Some(token @ Token { token_type: Or, .. }) = self.peek()? {
+            let operator = *token;
+            self.advance();
+            let right = self.and()?;
+            expression = self.found_expr(Logical(expression, operator, right))
+        }
+
+        Ok(expression)
+    }
+
+    fn and(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+        let mut expression = self.equality()?;
+
+        while let Some(token @ Token { token_type: And, .. }) = self.peek()? {
+            let operator = *token;
+            self.advance();
+            let right = self.equality()?;
+            expression = self.found_expr(Logical(expression, operator, right))
+        }
+
+        Ok(expression)
+    }
+
     fn equality(&mut self) -> Result<ExprIndex, ParseError<'s>> {
-        let mut expr = self.comparison()?;
+        let mut expression = self.comparison()?;
 
         while let Some(token @ Token {
             token_type: EqualEqual | BangEqual, ..
@@ -323,10 +350,10 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.comparison()?;
-            expr = self.found_expr(Binary(expr, operator, right))
+            expression = self.found_expr(Binary(expression, operator, right))
         }
 
-        Ok(expr)
+        Ok(expression)
     }
 
     fn comparison(&mut self) -> Result<ExprIndex, ParseError<'s>> {
@@ -461,6 +488,13 @@ impl<'s> fmt::Display for Ast<'s> {
                     False         => write!(f, "false"),
                     _             => write!(f, "<unprintable>")
                 },
+                Logical(left, operator, right) => {
+                    write!(f, "({} ", operator)?;
+                    print_expression(f, ast.expression(*left), ast)?;
+                    write!(f, " ")?;
+                    print_expression(f, ast.expression(*right), ast)?;
+                    write!(f, ")")
+                }
                 Variable(token) => write!(f, "{}", token),
                 Assign(target, expression) => {
                     write!(f, "(set {} ", target)?;

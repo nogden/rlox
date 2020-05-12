@@ -62,6 +62,10 @@ impl Value {
             _                                  => true
         }
     }
+
+    fn is_falsey(&self) -> bool {
+        ! self.is_truthy()
+    }
 }
 
 use std::fmt;
@@ -232,7 +236,18 @@ fn eval_expression<'s>(
                 _ => unreachable!("Binary operator other than (+|-|*|/)")
             }
         },
-        Variable(identifier) => match env.resolve(identifier) {
+        Logical(lhs, token, rhs) => {
+            let left = eval_expression(ast.expression(*lhs), ast, env)?;
+
+            match token.token_type {
+                TT::And => if left.is_falsey() { return Ok(left) },
+                TT::Or  => if left.is_truthy() { return Ok(left) },
+                _ => unreachable!("Logical operator other than (and | or)")
+            }
+
+            eval_expression(ast.expression(*rhs), ast, env)
+        },
+        Variable(identifier) => match env.resolve(identifier) { // TODO(nick): Replace with ok_or()?
             Some(value) => Ok(value),
             None        => Err(RuntimeError::UnresolvedIdentifier(*identifier))
         },

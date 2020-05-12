@@ -133,4 +133,37 @@ fn true_is_greater_than_false() {
             assert_eq!(Some(Boolean(i <= j)),   result_of(&format!(r#""{}" <= "{}""#, a, b)));
         }
     }
+
+}
+
+#[test]
+fn or_boolean_logic() {
+    assert_eq!(Some(Boolean(false)),            lox!( false or false ));
+    assert_eq!(Some(Boolean(true)),             lox!(  true or false ));
+    assert_eq!(Some(Boolean(true)),             lox!( false or true  ));
+    assert_eq!(Some(Boolean(true)),             lox!(  true or true  ));
+}
+
+#[test]
+fn or_returns_first_truthy_or_last_falsey_value() {
+    assert_eq!(Some(string("Second")),          lox!(     nil or "Second" ));
+    assert_eq!(Some(string("First")),           lox!( "First" or "Second" ));
+    assert_eq!(Some(Nil),                       lox!(   false or nil      ));
+}
+
+// Short circuiting behaviour test
+
+#[test]
+fn and_boolean_logic() {
+    assert_eq!(Some(Boolean(false)),            lox!( false and false ));
+    assert_eq!(Some(Boolean(false)),            lox!(  true and false ));
+    assert_eq!(Some(Boolean(false)),            lox!( false and true  ));
+    assert_eq!(Some(Boolean(true)),             lox!(  true and true  ));
+}
+
+#[test]
+fn and_returns_first_falsey_or_last_truthy_value() {
+    assert_eq!(Some(Nil),                       lox!(     nil and "Second" ));
+    assert_eq!(Some(string("Second")),          lox!( "First" and "Second" ));
+    assert_eq!(Some(Boolean(false)),            lox!(   false and nil      ));
 }
