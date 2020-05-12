@@ -215,7 +215,12 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 self.if_statement()
             },
 
-            Some(Token {token_type: While, .. }) => {
+            Some(Token { token_type: For, .. }) => {
+                self.advance();
+                self.for_statement()
+            },
+
+            Some(Token { token_type: While, .. }) => {
                 self.advance();
                 self.while_statement()
             }
@@ -258,6 +263,61 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         Ok(Some(self.found_stmt(
             Statement::If(condition, then_branch, else_branch))
         ))
+    }
+
+    fn for_statement(&mut self) -> StmtResult<'s> {
+        let initialiser = match self.peek()? {
+            Some(Token { token_type: Semicolon, .. }) => {
+                self.advance();
+                None
+            },
+            Some(Token { token_type: Var, .. }) => {
+                self.advance();
+                self.var_declaration()?
+            },
+            Some(_) => self.expression_statement()?,
+            None => unreachable!("Shuld have hit Eof (in for_statement)")
+        };
+
+        let condition = if let Some(Token {
+            token_type: Semicolon, ..
+        }) = self.peek()? {
+            self.found_expr(Literal(True))  // Empty conditions are always true
+        } else {
+            self.expression()?
+        };
+
+        self.consume(Semicolon)?;
+
+        let increment = if let Some(Token {
+            token_type: LeftBrace, ..
+        }) = self.peek()? {
+            None
+        } else {
+            Some(self.expression()?)
+        };
+
+        let opening_brace = self.consume(LeftBrace)?;
+        let mut body = self.block(opening_brace)?
+            .ok_or(UnexpectedEndOfFile)?;
+
+        // Desugar to a while loop
+
+        // Wrap the body in a new block with the increment as the last statement
+        if let Some(expression) = increment {
+            let increment = self.found_stmt(Statement::Expression(expression));
+            body = self.found_stmt(Statement::Block(vec![body, increment]));
+        }
+
+        // Create a while loop with the new block as it's body
+        body = self.found_stmt(Statement::While(condition, body));
+
+        // Place the while loop in a block that runs the initialiser first
+        if let Some(initialiser) = initialiser {
+            body = self.found_stmt(Statement::Block(vec![initialiser, body]))
+        }
+
+        Ok(Some(body))
     }
 
     fn while_statement(&mut self) -> StmtResult<'s> {

@@ -68,6 +68,12 @@ fn if_statement_bodies_must_always_be_blocks() {
 }
 
 #[test]
+#[should_panic(expected = "Expected '{'")]
+fn while_loop_bodies_must_always_be_blocks() {
+    lox!{ while true print "Shown"; };
+}
+
+#[test]
 fn while_loops_execute_their_bodies_until_their_condition_becomes_falsey() {
     let expected = "1\n\
                     2\n\
@@ -85,3 +91,31 @@ fn while_loops_execute_their_bodies_until_their_condition_becomes_falsey() {
 fn while_loops_do_not_execute_their_bodies_if_their_condition_starts_falsey() {
     assert_eq!("", lox_stdout!{ while false { print "Hidden"; } });
 }
+
+#[test]
+fn for_loops_provide_the_same_functionaity_in_a_more_convenient_style() {
+    let expected = "1\n\
+                    2\n\
+                    3\n";
+    assert_eq!(expected, lox_stdout!{
+        for var i = 0; i < 3; i = i + 1 {
+            print i + 1;
+        }
+    });
+}
+
+#[test]
+fn for_loops_may_skip_the_initaliser() {
+    let expected = "1\n\
+                    2\n\
+                    3\n";
+    assert_eq!(expected, lox_stdout!{
+        var i = 0;
+
+        for ; i < 3; i = i + 1 {
+            print i + 1;
+        }
+    });
+}
+
+// Missing conditions and mutators once we have a way to break an infinite loop
