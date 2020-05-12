@@ -29,7 +29,7 @@ pub enum Expression<'s> {
     Binary(ExprIndex, Token<'s>, ExprIndex),
     Unary(Token<'s>, ExprIndex),
     Grouping(ExprIndex),
-    Literal(Token<'s>),
+    Literal(TokenType<'s>),
     Logical(ExprIndex, Token<'s>, ExprIndex),
     Variable(Token<'s>),
     Assign(Token<'s>, ExprIndex),
@@ -434,7 +434,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             Some(token @ Token {
                 token_type: False | True | Nil | Number(_) | String(_), ..
             }) => {
-                let literal = *token;
+                let literal = token.token_type;
                 self.advance();
                 Ok(self.found_expr(Literal(literal)))
             },
@@ -495,7 +495,7 @@ impl<'s> fmt::Display for Ast<'s> {
                     print_expression(f, ast.expression(*expression), ast)?;
                     write!(f, ")")
                 },
-                Literal(token) => match token.token_type {
+                Literal(token_type) => match token_type {
                     Number(n)     => write!(f, "{}", n),
                     String(s)     => write!(f, "\"{}\"", s),
                     Nil           => write!(f, "nil"),

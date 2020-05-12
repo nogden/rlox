@@ -209,13 +209,15 @@ fn eval_expression<'s>(
     use TokenType as TT;
 
     match expression {
-        Literal(Token { token_type: t, .. }) => match *t {
+        Literal(token_type) => match *token_type {
             TT::Number(n)  => Ok(Number(n)),
             TT::String(s)  => Ok(String(s.to_owned())),
             TT::True       => Ok(Boolean(true)),
             TT::False      => Ok(Boolean(false)),
             TT::Nil        => Ok(Nil),
-            _ => unreachable!("Literal other than number or string")
+            _ => unreachable!(
+                "Literal other than (number | string | true | false | nil)"
+            )
         },
         Grouping(expr) => {
             eval_expression(ast.expression(*expr), ast, env)
