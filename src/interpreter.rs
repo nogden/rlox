@@ -142,12 +142,12 @@ fn eval_statement<'s>(
             eval_expression(ast.expression(*expression), ast, env)
             .map(|v| Some(v)),
 
-        If(condition, then_block, optional_else_block) => {
-            let condition_result = eval_expression(
-                ast.expression(*condition), ast, env
+        If(expression, then_block, optional_else_block) => {
+            let condition = eval_expression(
+                ast.expression(*expression), ast, env
             )?;
 
-            if condition_result.is_truthy() {
+            if condition.is_truthy() {
                 eval_statement(ast.statement(*then_block), ast, env)?;
             } else if let Some(else_block) = optional_else_block {
                 eval_statement(ast.statement(*else_block), ast, env)?;
@@ -155,6 +155,17 @@ fn eval_statement<'s>(
 
             Ok(None)
         },
+
+        While(expression, statement) => {
+            let condition = ast.expression(*expression);
+            let body = ast.statement(*statement);
+
+            while eval_expression(condition, ast, env)?.is_truthy() {
+                eval_statement(body, ast, env)?;
+            }
+
+            Ok(None)
+        }
 
         Print(expression) => {
             match eval_expression(ast.expression(*expression), ast, env)? {

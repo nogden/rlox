@@ -18,6 +18,7 @@ pub struct Ast<'s> {
 pub enum Statement<'s> {
     Expression(ExprIndex),
     If(ExprIndex, StmtIndex, Option<StmtIndex>),
+    While(ExprIndex, StmtIndex),
     Print(ExprIndex),
     Var(Token<'s>, Option<ExprIndex>),
     Block(Vec<StmtIndex>),
@@ -212,6 +213,11 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             Some(Token { token_type: If, .. }) => {
                 self.advance();
                 self.if_statement()
+            },
+
+            Some(Token {token_type: While, .. }) => {
+                self.advance();
+                self.while_statement()
             }
 
             Some(Token { token_type: Print, .. }) => {
@@ -252,6 +258,15 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         Ok(Some(self.found_stmt(
             Statement::If(condition, then_branch, else_branch))
         ))
+    }
+
+    fn while_statement(&mut self) -> StmtResult<'s> {
+        let condition = self.expression()?;
+        let opening_brace = self.consume(LeftBrace)?;
+        let body = self.block(opening_brace)?
+            .ok_or(UnexpectedEndOfFile)?;
+
+        Ok(Some(self.found_stmt(Statement::While(condition, body))))
     }
 
     fn print_statement(&mut self) -> StmtResult<'s> {
@@ -511,23 +526,30 @@ impl<'s> fmt::Display for Ast<'s> {
 
             match statement {
                 Expression(expression) => {
-                    print_expression(f, ast.expression(*expression), ast)?;
+                    print_expression(f, ast.expression(*expression), ast)
                 },
-                If(expression, then_block, optional_else_block) => {
+                If(condition, then_block, optional_else_block) => {
                     write!(f, "(if ")?;
-                    print_expression(f, ast.expression(*expression), ast)?;
+                    print_expression(f, ast.expression(*condition), ast)?;
                     write!(f, " ")?;
                     print_statement(f, ast.statement(*then_block), ast)?;
                     if let Some(else_block) = optional_else_block {
                         write!(f, " ")?;
                         print_statement(f, ast.statement(*else_block), ast)?;
                     }
-                    write!(f, ")")?;
-                }
+                    write!(f, ")")
+                },
+                While(condition, body) => {
+                    write!(f, "(while ")?;
+                    print_expression(f, ast.expression(*condition), ast)?;
+                    write!(f, " ")?;
+                    print_statement(f, ast.statement(*body), ast)?;
+                    write!(f, ")")
+                },
                 Print(expression) => {
                     write!(f, "(print ")?;
                     print_expression(f, ast.expression(*expression), ast)?;
-                    write!(f, ")")?;
+                    write!(f, ")")
                 },
                 Var(ident, initialiser) => {
                     write!(f, "(define {}", ident)?;
@@ -535,17 +557,16 @@ impl<'s> fmt::Display for Ast<'s> {
                         write!(f, " ")?;
                         print_expression(f, ast.expression(*expr), ast)?;
                     }
-                    write!(f, ")")?;
+                    write!(f, ")")
                 },
                 Block(statements) => {
                     writeln!(f, "(scope ")?;
                     for statement in statements {
                         print_statement(f, ast.statement(*statement), ast)?;
                     }
-                    write!(f, ")")?;
+                    write!(f, ")")
                 }
             }
-            write!(f, "\n")
         }
 
         for statement in self.top_level_statements() {
