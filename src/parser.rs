@@ -162,13 +162,13 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         }
     }
 
-    fn found_stmt(&mut self, statement: Statement<'s>) -> StmtIndex {
+    fn add_stmt(&mut self, statement: Statement<'s>) -> StmtIndex {
         let index = self.statements.len();
         self.statements.push(statement);
         StmtIndex(index)
     }
 
-    fn found_expr(&mut self, expression: Expression<'s>) -> ExprIndex {
+    fn add_expr(&mut self, expression: Expression<'s>) -> ExprIndex {
         let index = self.expressions.len();
         self.expressions.push(expression);
         ExprIndex(index)
@@ -205,7 +205,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
         self.consume_terminator()?;
 
-        Ok(Some(self.found_stmt(Statement::Var(ident, initialiser))))
+        Ok(Some(self.add_stmt(Statement::Var(ident, initialiser))))
     }
 
     fn statement(&mut self) -> StmtResult<'s> {
@@ -260,7 +260,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             None
         };
 
-        Ok(Some(self.found_stmt(
+        Ok(Some(self.add_stmt(
             Statement::If(condition, then_branch, else_branch))
         ))
     }
@@ -282,7 +282,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         let condition = if let Some(Token {
             token_type: Semicolon, ..
         }) = self.peek()? {
-            self.found_expr(Literal(True))  // Empty conditions are always true
+            self.add_expr(Literal(True))  // Empty conditions are always true
         } else {
             self.expression()?
         };
@@ -305,16 +305,16 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
         // Wrap the body in a new block with the increment as the last statement
         if let Some(expression) = increment {
-            let increment = self.found_stmt(Statement::Expression(expression));
-            body = self.found_stmt(Statement::Block(vec![body, increment]));
+            let increment = self.add_stmt(Statement::Expression(expression));
+            body = self.add_stmt(Statement::Block(vec![body, increment]));
         }
 
         // Create a while loop with the new block as it's body
-        body = self.found_stmt(Statement::While(condition, body));
+        body = self.add_stmt(Statement::While(condition, body));
 
         // Place the while loop in a block that runs the initialiser first
         if let Some(initialiser) = initialiser {
-            body = self.found_stmt(Statement::Block(vec![initialiser, body]))
+            body = self.add_stmt(Statement::Block(vec![initialiser, body]))
         }
 
         Ok(Some(body))
@@ -326,14 +326,14 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         let body = self.block(opening_brace)?
             .ok_or(UnexpectedEndOfFile)?;
 
-        Ok(Some(self.found_stmt(Statement::While(condition, body))))
+        Ok(Some(self.add_stmt(Statement::While(condition, body))))
     }
 
     fn print_statement(&mut self) -> StmtResult<'s> {
         let expression = self.expression()?;
         self.consume_terminator()?;
 
-        Ok(Some(self.found_stmt(Statement::Print(expression))))
+        Ok(Some(self.add_stmt(Statement::Print(expression))))
     }
 
     fn block(&mut self, opening_brace: Token<'s>) -> StmtResult<'s> {
@@ -343,7 +343,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             match self.peek()? {
                 Some(Token { token_type: RightBrace, ..}) => {
                     self.advance();
-                    return Ok(Some(self.found_stmt(Statement::Block(statements))))
+                    return Ok(Some(self.add_stmt(Statement::Block(statements))))
                 },
                 Some(eof @ Token { token_type: Eof, .. }) => {
                     return Err(UnmatchedDelimiter {
@@ -365,7 +365,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         let expression = self.expression()?;
         self.consume_terminator()?;
 
-        Ok(Some(self.found_stmt(Statement::Expression(expression))))
+        Ok(Some(self.add_stmt(Statement::Expression(expression))))
     }
 
     fn expression(&mut self) -> Result<ExprIndex, ParseError<'s>> {
@@ -381,7 +381,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let value = self.assignment()?;
 
             if let Variable(ident) = self.expressions[expression.0] {
-                return Ok(self.found_expr(Assign(ident, value)))
+                return Ok(self.add_expr(Assign(ident, value)))
             }
 
             return Err(InvalidAssignmentTarget(assignment))
@@ -397,7 +397,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.and()?;
-            expression = self.found_expr(Logical(expression, operator, right))
+            expression = self.add_expr(Logical(expression, operator, right))
         }
 
         Ok(expression)
@@ -410,7 +410,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.equality()?;
-            expression = self.found_expr(Logical(expression, operator, right))
+            expression = self.add_expr(Logical(expression, operator, right))
         }
 
         Ok(expression)
@@ -425,7 +425,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.comparison()?;
-            expression = self.found_expr(Binary(expression, operator, right))
+            expression = self.add_expr(Binary(expression, operator, right))
         }
 
         Ok(expression)
@@ -440,7 +440,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.addition()?;
-            expr = self.found_expr(Binary(expr, operator, right))
+            expr = self.add_expr(Binary(expr, operator, right))
         }
 
         Ok(expr)
@@ -455,7 +455,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.multiplication()?;
-            expr = self.found_expr(Binary(expr, operator, right))
+            expr = self.add_expr(Binary(expr, operator, right))
         }
 
         Ok(expr)
@@ -470,7 +470,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.unary()?;
-            expr = self.found_expr(Binary(expr, operator, right))
+            expr = self.add_expr(Binary(expr, operator, right))
         }
 
         Ok(expr)
@@ -483,7 +483,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let operator = *token;
             self.advance();
             let right = self.unary()?;
-            return Ok(self.found_expr(Unary(operator, right)))
+            return Ok(self.add_expr(Unary(operator, right)))
         }
 
         self.primary()
@@ -496,7 +496,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             }) => {
                 let literal = token.token_type;
                 self.advance();
-                Ok(self.found_expr(Literal(literal)))
+                Ok(self.add_expr(Literal(literal)))
             },
 
             Some(token @ Token { token_type: LeftParen, .. }) => {
@@ -510,14 +510,14 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                         token: unexpected_token, opening_delimiter
                     })
                 } else {
-                    Ok(self.found_expr(Grouping(expr)))
+                    Ok(self.add_expr(Grouping(expr)))
                 }
             },
 
             Some(token @ Token { token_type: Identifier(_), .. }) => {
                 let ident = *token;
                 self.advance();
-                Ok(self.found_expr(Variable(ident)))
+                Ok(self.add_expr(Variable(ident)))
             }
 
             Some(token) => Err(UnexpectedToken {
