@@ -65,3 +65,25 @@ fn if_statements_evaluate_their_else_bodies_when_the_expression_is_falsey() {
         }
     });
 }
+
+#[test]
+fn if_statements_evaluate_the_truthines_of_the_result_of_an_expression() {
+    let expected = "Shown\n";
+
+    assert_eq!(expected, lox_stdout!{
+        if 1 + 2 < 4 {
+            print "Shown";
+        } else {
+            print "Hidden";
+        }
+    });
+}
+
+#[test]
+#[should_panic(expected = "Expected '{'")]
+fn if_statement_bodies_must_always_be_blocks() {
+    lox!{
+        if 1 != 2
+            print "Hidden";
+    };
+}
