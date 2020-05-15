@@ -119,3 +119,17 @@ fn for_loops_may_skip_the_initaliser() {
 }
 
 // Missing conditions and mutators once we have a way to break an infinite loop
+
+#[test]
+fn native_calls_yield_a_value() {
+    assert_eq!("number", lox!( elapsed_time(); ).unwrap().value_type());
+}
+
+#[test]
+#[should_panic(expected = "Arity mismatch")]
+fn native_calls_must_have_correct_arity() {
+    lox!( elapsed_time("oops"); );
+}
+
+// Native function with parameters
+// Native fn with incorrect types

@@ -111,6 +111,16 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         }
     }
 
+    fn match_token(&mut self, expected: TokenType) -> Result<bool, ParseError<'s>> {
+        match self.peek()? {
+            Some(token) if token.token_type == expected => {
+                self.advance();
+                Ok(true)
+            }
+            _ => Ok(false)
+        }
+    }
+
     fn advance(&mut self) { let _ = self.tokens.next(); }
 
     fn consume(&mut self, expected: TokenType) -> Result<Token<'s>, ParseError<'s>> {
@@ -176,8 +186,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn declaration(& mut self) -> StmtResult<'s> {
-        if let Some(Token { token_type: Var, .. }) = self.peek()? {
-            self.advance();
+        if self.match_token(Var)? {
             self.var_declaration()
         } else {
             self.statement()
@@ -195,10 +204,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         };
 
         self.advance();
-        let initialiser = if let Some(Token {
-            token_type: Equal, ..
-        }) = self.peek()? {
-            self.advance();
+        let initialiser = if self.match_token(Equal)? {
             Some(self.expression()?)
         } else {
             None
@@ -251,10 +257,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         let then_branch = self.block(opening_brace)?
             .ok_or(UnexpectedEndOfFile)?;
 
-        let else_branch = if let Some(Token {
-            token_type: Else, ..
-        }) = self.peek()? {
-            self.advance();
+        let else_branch = if self.match_token(Else)? {
             let opening_brace = self.consume(LeftBrace)?;
             Some(self.block(opening_brace)?.ok_or(UnexpectedEndOfFile)?)
         } else {
@@ -280,9 +283,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             None => unreachable!("Shuld have hit Eof (in for_statement)")
         };
 
-        let condition = if let Some(Token {
-            token_type: Semicolon, ..
-        }) = self.peek()? {
+        let condition = if self.match_token(Semicolon)? {
             self.add_expr(Literal(True))  // Empty conditions are always true
         } else {
             self.expression()?
@@ -290,9 +291,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
         self.consume(Semicolon)?;
 
-        let increment = if let Some(Token {
-            token_type: LeftBrace, ..
-        }) = self.peek()? {
+        let increment = if self.match_token(LeftBrace)? {
             None
         } else {
             Some(self.expression()?)
@@ -376,9 +375,8 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn assignment(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let expression = self.or()?;
 
-        if let Some(token @ Token { token_type: Equal, .. }) = self.peek()? {
-            let assignment = *token;
-            self.advance();
+        if let Ok(token) = self.consume(Equal) {
+            let assignment = token;
             let value = self.assignment()?;
 
             if let Variable(ident) = self.expressions[expression.0] {
@@ -394,9 +392,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn or(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let mut expression = self.and()?;
 
-        while let Some(token @ Token { token_type: Or, .. }) = self.peek()? {
-            let operator = *token;
-            self.advance();
+        while let Ok(operator) = self.consume(Or) {
             let right = self.and()?;
             expression = self.add_expr(Logical(expression, operator, right))
         }
@@ -407,9 +403,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn and(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let mut expression = self.equality()?;
 
-        while let Some(token @ Token { token_type: And, .. }) = self.peek()? {
-            let operator = *token;
-            self.advance();
+        while let Ok(operator) = self.consume(And) {
             let right = self.equality()?;
             expression = self.add_expr(Logical(expression, operator, right))
         }
@@ -487,20 +481,43 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             return Ok(self.add_expr(Unary(operator, right)))
         }
 
-        self.primary()
+        self.call()
     }
 
-    // fn call(&mut self) -> Result<ExprIndex, ParseError<'s>> {
-    //     let mut expression = self.primary()?;
+    fn call(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+        let mut expression = self.primary()?;
 
-    //     loop {
-    //         match self.peek()? {
-    //             Some(token @ Token { token_type: LeftParen, .. }) => {
-    //                 expression = finish
-    //             }
-    //         }
-    //     }
-    // }
+        loop {
+            if self.match_token(LeftParen)? {
+                expression = self.finish_call(expression)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(expression)
+    }
+
+    fn finish_call(
+        &mut self, callee: ExprIndex
+    ) -> Result<ExprIndex, ParseError<'s>> {
+        let mut arguments = Vec::new();
+
+        let closing_paren = if let Ok(paren) = self.consume(RightParen) {
+            paren
+        } else {
+            loop {
+                arguments.push(self.expression()?);
+
+                if ! self.match_token(Comma)? {
+                    break;
+                }
+            }
+            self.consume(RightParen)?
+        };
+
+        Ok(self.add_expr(Call(callee, closing_paren, arguments)))
+    }
 
     fn primary(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         match self.peek()? {
