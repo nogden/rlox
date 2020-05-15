@@ -20,15 +20,19 @@ pub enum ParseError<'s> {
              '{opening_delimiter}', found {token}", token.line)]
     UnmatchedDelimiter {
         token: Token<'s>,
-        opening_delimiter: Token<'s>
+        opening_delimiter: Token<'s>,
     },
 
     #[error("(line {}): Expected {}, found '{token}'", token.line, expected)]
     UnexpectedToken {
         token: Token<'s>,
-        expected: &'static str
+        expected: &'static str,
     },
 
     #[error("(line {}): Invalid assignment target '{0}'", .0.line)]
     InvalidAssignmentTarget(Token<'s>),
+
+    #[error("(line {}): Function takes more than the maximum number \
+             of arguments (255)", .0.line)]
+    TooManyArguments(Token<'s>),
 }

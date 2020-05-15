@@ -6,6 +6,7 @@ mod scanner;
 mod parser;
 mod interpreter;
 mod error;
+mod native_functions;
 
 use std::{
     fmt, io,
@@ -13,8 +14,6 @@ use std::{
     error::Error,
     collections::HashMap,
 };
-
-use interpreter::RuntimeError;
 
 pub use interpreter::Value;
 
@@ -26,57 +25,60 @@ pub enum LoxError<'s> {
     RuntimeError(interpreter::RuntimeError<'s>)
 }
 
+#[derive(Clone, Debug)]
+pub enum NativeError {
+    ArityMismatch(usize),
+    TypeMismatch(&'static str, Value),
+    Failed(String),
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum Status {
     AwaitingInput,
     Terminated(i32),
 }
 
+pub type NativeFn = fn(&Vec<Value>) -> Result<Value, NativeError>;
+
 pub struct Lox<'io> {
     pub stdout: &'io mut dyn io::Write,
-   bindings: HashMap<String, Value>,
+    bindings: HashMap<String, Value>,
+    native_functions: Vec<NativeFn>
 }
 
 impl<'io> Lox<'io> {
     pub fn new(stdout: &'io mut dyn io::Write) -> Lox<'io> {
-        Lox { stdout, bindings: HashMap::new() }
+        let mut interpreter = Lox {
+            stdout,
+            bindings: HashMap::new(),
+            native_functions: vec![]
+        };
+
+        interpreter.expose("elapsed_time", native_functions::elapsed_time);
+
+        interpreter
     }
 
     pub fn run<'s>(
-        &mut self, _file: &Path, source_code: &'s str
+        &mut self,
+        _file: &Path,
+        source_code: &'s str,
     ) -> LoxResult<'s, (Option<Value>, Status)> {
-        use scanner::Scanner;
         use interpreter::Evaluate;
+        use scanner::Scanner;
 
         let ast = parser::parse(source_code.tokens())?;
         let value = ast.evaluate(self)?;
 
         Ok((value, Status::AwaitingInput))
     }
-}
 
-impl<'io> interpreter::Environment for Lox<'io> {
-    fn stdout(&mut self) -> &mut dyn io::Write {
-        self.stdout
-    }
-
-    fn define(&mut self, identifier: &str, value: Value) {
-        let _ = self.bindings.insert(identifier.to_owned(), value);
-    }
-
-    fn assign<'s>(
-        &mut self, identifier: &token::Token<'s>, value: Value
-    ) -> Result<(), RuntimeError<'s>> {
-        if let Some(bound_value) = self.bindings.get_mut(identifier.lexeme) {
-            *bound_value = value;
-            Ok(())
-        } else {
-            Err(RuntimeError::UnresolvedIdentifier(*identifier))
-        }
-    }
-
-    fn resolve(&self, identifier: &token::Token) -> Option<Value> {
-        self.bindings.get(identifier.lexeme).cloned()
+    pub fn expose<T: AsRef<str>>(&mut self, name: T, function: NativeFn) {
+        let index = self.native_functions.len();
+        self.native_functions.push(function);
+        self.bindings.insert(
+            name.as_ref().to_owned(), Value::native_fn(index)
+        );
     }
 }
 

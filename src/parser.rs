@@ -2,7 +2,7 @@ use std::{fmt, iter};
 
 use crate::{
     error::{ParseError, ParseError::*},
-    token::{Token, TokenType, TokenType::*}
+    token::{Token, TokenType, TokenType::*},
 };
 
 use Expression::*;
@@ -11,7 +11,7 @@ use Expression::*;
 pub struct Ast<'s> {
     top_level_statements: Vec<StmtIndex>,
     statements: Vec<Statement<'s>>,
-    expressions: Vec<Expression<'s>>
+    expressions: Vec<Expression<'s>>,
 }
 
 #[derive(Clone, Debug)]
@@ -26,30 +26,31 @@ pub enum Statement<'s> {
 
 #[derive(Clone, Debug)]
 pub enum Expression<'s> {
+    Assign(Token<'s>, ExprIndex),
     Binary(ExprIndex, Token<'s>, ExprIndex),
-    Unary(Token<'s>, ExprIndex),
+    Call(ExprIndex, Token<'s>, Vec<ExprIndex>),
     Grouping(ExprIndex),
     Literal(TokenType<'s>),
     Logical(ExprIndex, Token<'s>, ExprIndex),
+    Unary(Token<'s>, ExprIndex),
     Variable(Token<'s>),
-    Assign(Token<'s>, ExprIndex),
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct ExprIndex(usize);  // A reference to an expression in the Ast
+pub struct ExprIndex(usize); // A reference to an expression in the Ast
 
-#[derive(Clone, Copy, Debug)]
-pub struct StmtIndex(usize);  // A reference to a statement in the Ast
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StmtIndex(usize); // A reference to a statement in the Ast
 
 type StmtResult<'s> = Result<Option<StmtIndex>, ParseError<'s>>;
 
 pub fn parse<'s, 'i>(
-    tokens: impl IntoIterator<Item = Result<Token<'s>, ParseError<'s>>> + 'i
+    tokens: impl IntoIterator<Item = Result<Token<'s>, ParseError<'s>>> + 'i,
 ) -> Result<Ast<'s>, Vec<ParseError<'s>>> {
     let parser = Parser {
         tokens: tokens.into_iter().peekable(),
         statements: Vec::new(),
-        expressions: Vec::new()
+        expressions: Vec::new(),
     };
 
     parser.parse()
@@ -489,6 +490,18 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         self.primary()
     }
 
+    // fn call(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+    //     let mut expression = self.primary()?;
+
+    //     loop {
+    //         match self.peek()? {
+    //             Some(token @ Token { token_type: LeftParen, .. }) => {
+    //                 expression = finish
+    //             }
+    //         }
+    //     }
+    // }
+
     fn primary(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         match self.peek()? {
             Some(token @ Token {
@@ -544,24 +557,33 @@ impl<'s> fmt::Display for Ast<'s> {
                     write!(f, " ")?;
                     print_expression(f, ast.expression(*right), ast)?;
                     write!(f, ")")
-                },
+                }
                 Unary(token, expression) => {
                     write!(f, "({} ", token)?;
                     print_expression(f, ast.expression(*expression), ast)?;
                     write!(f, ")")
-                },
+                }
+                Call(callee, _token, arguments) => {
+                    write!(f, "(")?;
+                    print_expression(f, ast.expression(*callee), ast)?;
+                    for argument in arguments {
+                        write!(f, " ")?;
+                        print_expression(f, ast.expression(*argument), ast)?;
+                    }
+                    write!(f, ")")
+                }
                 Grouping(expression) => {
                     write!(f, "(group ")?;
                     print_expression(f, ast.expression(*expression), ast)?;
                     write!(f, ")")
-                },
+                }
                 Literal(token_type) => match token_type {
-                    Number(n)     => write!(f, "{}", n),
-                    String(s)     => write!(f, "\"{}\"", s),
-                    Nil           => write!(f, "nil"),
-                    True          => write!(f, "true"),
-                    False         => write!(f, "false"),
-                    _             => write!(f, "<unprintable>")
+                    Number(n) => write!(f, "{}", n),
+                    String(s) => write!(f, "\"{}\"", s),
+                    Nil => write!(f, "nil"),
+                    True => write!(f, "true"),
+                    False => write!(f, "false"),
+                    _ => write!(f, "<unprintable>"),
                 },
                 Logical(left, operator, right) => {
                     write!(f, "({} ", operator)?;
@@ -618,7 +640,7 @@ impl<'s> fmt::Display for Ast<'s> {
                         print_expression(f, ast.expression(*expr), ast)?;
                     }
                     write!(f, ")")
-                },
+                }
                 Block(statements) => {
                     writeln!(f, "(scope ")?;
                     for statement in statements {

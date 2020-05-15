@@ -4,23 +4,30 @@ use thiserror::Error;
 
 use crate::{
     token::{Token, TokenType},
-    parser::{Ast, Expression, Expression::*, Statement, Statement::*}
+    parser::{Ast, Expression, Expression::*, Statement, Statement::*, StmtIndex},
+    NativeError,
 };
 
 pub trait Evaluate<'s> {
-    fn evaluate(&self, env: &mut dyn Environment) -> EvalResult<'s>;
+    fn evaluate(&self, env: &mut dyn Environment<'s>) -> EvalResult<'s>;
 }
 
-pub trait Environment {
+pub trait Environment<'s> {
     fn stdout(&mut self) -> &mut dyn io::Write;
+
+    fn global_scope(&mut self) -> &mut dyn Environment<'s>;
 
     fn define(&mut self, identifier: &str, value: Value);
 
-    fn assign<'s>(
+    fn assign(
         &mut self, identifier: &Token<'s>, value: Value
     ) -> Result<(), RuntimeError<'s>>;
 
     fn resolve(&self, identifier: &Token) -> Option<Value>;
+
+    fn call_native_fn(
+        &mut self, function: NativeFnIndex, arguments: &Vec<Value>
+    ) -> Result<Value, NativeError>;
 }
 
 type EvalResult<'s> = Result<Option<Value>, RuntimeError<'s>>;
@@ -28,11 +35,16 @@ type ExprResult<'s> = Result<Value, RuntimeError<'s>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
+    Nil,
     Number(f64),
     String(String),
     Boolean(bool),
-    Nil,
+    Function(Vec<String>, Vec<StmtIndex>),
+    NativeFunction(NativeFnIndex),
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativeFnIndex(usize);
 
 #[derive(Clone, Debug, Error)]
 pub enum RuntimeError<'s> {
@@ -53,6 +65,22 @@ pub enum RuntimeError<'s> {
 
     #[error("(line {}): Unresolved identifier '{0}'", .0.line)]
     UnresolvedIdentifier(Token<'s>),
+
+    #[error("(line {}): Type mismatch, expected {}, found {} '{}'",
+            location.line, expected, provided.value_type(), provided)]
+    TypeMismatch {
+        expected: &'static str,
+        provided: Value,
+        location: Token<'s>
+    },
+
+    #[error("(line {}): Arity mismatch, expected {} parameters, found {}",
+            location.line, expected, provided)]
+    ArityMismatch {
+        expected: usize,
+        provided: usize,
+        location: Token<'s>
+    }
 }
 
 impl Value {
@@ -66,6 +94,23 @@ impl Value {
     fn is_falsey(&self) -> bool {
         ! self.is_truthy()
     }
+
+    pub fn value_type(&self) -> &'static str {
+        use Value::*;
+
+        match self {
+            Nil               => "nil",
+            Number(_)         => "number",
+            String(_)         => "string",
+            Boolean(_)        => "boolean",
+            Function(_, _)    => "function",
+            NativeFunction(_) => "native function"
+        }
+    }
+
+    pub fn native_fn(index: usize) -> Value {
+        Value::NativeFunction(NativeFnIndex(index))
+    }
 }
 
 use std::fmt;
@@ -75,16 +120,19 @@ impl fmt::Display for Value {
         use Value::*;
 
         match self {
-            Number(n)  => write!(f, "{}", n),
-            String(s)  => write!(f, "\"{}\"", s),
-            Boolean(b) => write!(f, "{}", b),
-            Nil        => write!(f, "nil"),
+            Nil               => write!(f, "nil"),
+            Number(n)         => write!(f, "{}", n),
+            String(s)         => write!(f, "\"{}\"", s),
+            Boolean(b)        => write!(f, "{}", b),
+            Function(_, _)    => write!(f, "<fn>"),
+            NativeFunction(_) => write!(f, "<native fn>"),
         }
     }
 }
 
+
 impl<'s> Evaluate<'s> for Ast<'s> {
-    fn evaluate(&self, env: &mut dyn Environment) -> EvalResult<'s> {
+    fn evaluate(&self, env: &mut dyn Environment<'s>) -> EvalResult<'s> {
         let mut last_value = None;
         for statement in self.top_level_statements() {
             last_value = eval_statement(self.statement(*statement), self, env)?;
@@ -94,27 +142,31 @@ impl<'s> Evaluate<'s> for Ast<'s> {
     }
 }
 
-struct Scope<'p> {
-    parent: &'p mut dyn Environment,
+struct Scope<'p, 's> {
+    parent: &'p mut dyn Environment<'s>,
     bindings: HashMap<String, Value>,
 }
 
-impl<'p> Scope<'p> {
-    fn new(parent_scope: &'p mut dyn Environment) -> Scope<'p> {
+impl<'p, 's> Scope<'p, 's> {
+    fn new(parent_scope: &'p mut dyn Environment<'s>) -> Scope<'p, 's> {
         Scope { parent: parent_scope, bindings: HashMap::new() }
     }
 }
 
-impl<'p> Environment for Scope<'p> {
+impl<'p, 's> Environment<'s> for Scope<'p, 's> {
     fn stdout(&mut self) -> &mut dyn io::Write {
         self.parent.stdout()
+    }
+
+    fn global_scope(&mut self) -> &mut dyn Environment<'s> {
+        self.parent.global_scope()
     }
 
     fn define(&mut self, identifier: &str, value: Value) {
         let _ = self.bindings.insert(identifier.to_owned(), value);
     }
 
-    fn assign<'s>(
+    fn assign(
         &mut self, identifier: &Token<'s>, value: Value
     ) -> Result<(), RuntimeError<'s>> {
         if let Some(bound_value) = self.bindings.get_mut(identifier.lexeme) {
@@ -130,10 +182,52 @@ impl<'p> Environment for Scope<'p> {
             self.parent.resolve(identifier)
         )
     }
+
+    fn call_native_fn(
+        &mut self, function: NativeFnIndex, arguments: &Vec<Value>
+    ) -> Result<Value, NativeError> {
+        self.global_scope().call_native_fn(function, arguments)
+    }
+}
+
+impl<'io, 's> Environment<'s> for crate::Lox<'io> {
+    fn stdout(&mut self) -> &mut dyn io::Write {
+        self.stdout
+    }
+
+    fn global_scope(&mut self) -> &mut dyn Environment<'s> {
+        self
+    }
+
+    fn define(&mut self, identifier: &str, value: Value) {
+        let _ = self.bindings.insert(identifier.to_owned(), value);
+    }
+
+    fn assign(
+        &mut self, identifier: &Token<'s>, value: Value,
+    ) -> Result<(), RuntimeError<'s>> {
+        if let Some(bound_value) = self.bindings.get_mut(identifier.lexeme) {
+            *bound_value = value;
+            Ok(())
+        } else {
+            Err(RuntimeError::UnresolvedIdentifier(*identifier))
+        }
+    }
+
+    fn resolve(&self, identifier: &Token) -> Option<Value> {
+        self.bindings.get(identifier.lexeme).cloned()
+    }
+
+    fn call_native_fn(
+        &mut self, function: NativeFnIndex, arguments: &Vec<Value>
+    ) -> Result<Value, NativeError> {
+        let f = self.native_functions[function.0];
+        f(arguments)
+    }
 }
 
 fn eval_statement<'s>(
-    statement: &Statement<'s>, ast: &Ast<'s>, env: &mut dyn Environment
+    statement: &Statement<'s>, ast: &Ast<'s>, env: &mut dyn Environment<'s>
 ) -> EvalResult<'s> {
     use Value::*;
 
@@ -203,7 +297,7 @@ fn eval_statement<'s>(
 }
 
 fn eval_expression<'s>(
-    expression: &Expression<'s>, ast: &Ast<'s>, env: &mut dyn Environment
+    expression: &Expression<'s>, ast: &Ast<'s>, env: &mut dyn Environment<'s>
 ) -> ExprResult<'s> {
     use Value::*;
     use TokenType as TT;
@@ -268,6 +362,73 @@ fn eval_expression<'s>(
             let value = eval_expression(ast.expression(*expression), ast, env)?;
             env.assign(variable, value.clone())?;
             Ok(value)
+        },
+        Call(callee, token, arguments) => {
+            match eval_expression(ast.expression(*callee), ast, env)? {
+                Function(parameters, body) => {
+                    if arguments.len() != parameters.len() {
+                        return Err(RuntimeError::ArityMismatch {
+                            expected: parameters.len(),
+                            provided: arguments.len(),
+                            location: *token
+                        })
+                    }
+
+                    let mut bindings = HashMap::new();
+                    let arg_param_pairs = arguments.iter().zip(parameters.iter());
+                    for (arg, param) in arg_param_pairs {
+                        let argument = eval_expression(
+                            ast.expression(*arg), ast, env
+                        )?;
+                        bindings.insert(param.clone(), argument);
+                    }
+
+                    let mut fn_env = Scope { bindings, parent: env };
+                    let mut last_value = None;
+                    for statement in body {
+                        last_value = eval_statement(
+                            ast.statement(statement), ast, &mut fn_env
+                        )?;
+                    }
+
+                    Ok(last_value.unwrap_or(Nil))
+                },
+
+                NativeFunction(function) => {
+                    // eval args
+                    // lookup function in env
+                    // call closure directly with arguments vec
+                    let arguments = arguments.iter()
+                        .map(|a| eval_expression(ast.expression(*a), ast, env))
+                        .collect::<Result<Vec<Value>, _>>()?;
+
+                    env.call_native_fn(function, &arguments).map_err(|e| {
+                        match e {
+                            NativeError::ArityMismatch(expected_arity) => {
+                                RuntimeError::ArityMismatch {
+                                    expected: expected_arity,
+                                    provided: arguments.len(),
+                                    location: *token
+                                }
+                            }
+                            NativeError::TypeMismatch(expected, provided) => {
+                                RuntimeError::TypeMismatch {
+                                    expected,
+                                    provided,
+                                    location: *token
+                                }
+                            }
+                            _ => panic!("Native call returned error")
+                        }
+                    })
+                }
+
+                value => return Err(RuntimeError::TypeMismatch {
+                    expected: "callable type",
+                    provided: value,
+                    location: *token
+                })
+            }
         }
     }
 }
