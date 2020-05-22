@@ -17,6 +17,7 @@ pub struct Ast<'s> {
 #[derive(Clone, Debug)]
 pub enum Statement<'s> {
     Expression(ExprIndex),
+    Fun(Token<'s>, Vec<Token<'s>>, StmtIndex),
     If(ExprIndex, StmtIndex, Option<StmtIndex>),
     While(ExprIndex, StmtIndex),
     Print(ExprIndex),
@@ -188,6 +189,8 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn declaration(& mut self) -> StmtResult<'s> {
         if self.match_token(Var)? {
             self.var_declaration()
+        } else if self.match_token(Fun)? {
+            self.function()
         } else {
             self.statement()
         }
@@ -213,6 +216,47 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         self.consume_terminator()?;
 
         Ok(Some(self.add_stmt(Statement::Var(ident, initialiser))))
+    }
+
+    fn function(&mut self) -> StmtResult<'s> {
+        let name = match self.peek()? {
+            Some(token @ Token { token_type: Identifier(_), .. }) => *token,
+            Some(other_token) => return Err(UnexpectedToken {
+                token: *other_token,
+                expected: "function name",
+            }),
+            _ => unreachable!("Should have hit Eof (in function)")
+        };
+        self.advance();
+        self.consume(LeftParen)?;
+
+        let mut parameters = Vec::new();
+        if ! self.match_token(RightParen)? {
+            loop {
+                let parameter_name = match self.peek()? {
+                    Some(ident @ Token { token_type: Identifier(_), .. }) =>
+                        *ident,
+                    Some(other_token) => return Err(UnexpectedToken {
+                        token: *other_token,
+                        expected: "parameter name",
+                    }),
+                    _ => unreachable!("Should have hit Eof (in function)")
+                };
+                self.advance();
+                parameters.push(parameter_name);
+
+                if ! self.match_token(Comma)? {
+                    break;
+                }
+            }
+            self.consume(RightParen)?;
+        };
+
+        let opening_brace = self.consume(LeftBrace)?;
+        let body = self.block(opening_brace)?
+            .ok_or(UnexpectedEndOfFile)?;
+
+        Ok(Some(self.add_stmt(Statement::Fun(name, parameters, body))))
     }
 
     fn statement(&mut self) -> StmtResult<'s> {
@@ -245,9 +289,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
             Some(Token { token_type: Eof, .. }) => Ok(None),
 
-            Some(_) => self.expression_statement(),
-
-            None => unreachable!("Should have hit Eof (in statement)")
+            _ => self.expression_statement(),
         }
     }
 
@@ -270,17 +312,12 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn for_statement(&mut self) -> StmtResult<'s> {
-        let initialiser = match self.peek()? {
-            Some(Token { token_type: Semicolon, .. }) => {
-                self.advance();
-                None
-            },
-            Some(Token { token_type: Var, .. }) => {
-                self.advance();
-                self.var_declaration()?
-            },
-            Some(_) => self.expression_statement()?,
-            None => unreachable!("Shuld have hit Eof (in for_statement)")
+        let initialiser = if self.match_token(Semicolon)? {
+            None
+        } else if self.match_token(Var)? {
+            self.var_declaration()?
+        } else {
+            self.expression_statement()?
         };
 
         let condition = if self.match_token(Semicolon)? {
@@ -351,12 +388,11 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                         token: *eof
                     })
                 },
-                Some(_) => {
+                _ => {
                     if let Some(statement) = self.declaration()? {
                         statements.push(statement);
                     }
-                },
-                None => unreachable!("Should have hit Eof (in block)")
+                }
             }
         }
     }
@@ -627,6 +663,15 @@ impl<'s> fmt::Display for Ast<'s> {
                 Expression(expression) => {
                     print_expression(f, ast.expression(*expression), ast)
                 },
+                Fun(name, parameters, body) => {
+                    write!(f, "(defn {} [", name)?;
+                    for parameter in parameters {
+                        write!(f, " {}", parameter)?;
+                    }
+                    write!(f, " ] ")?;
+                    print_statement(f, ast.statement(*body), ast)?;
+                    write!(f, ")")
+                },
                 If(condition, then_block, optional_else_block) => {
                     write!(f, "(if ")?;
                     print_expression(f, ast.expression(*condition), ast)?;
@@ -651,7 +696,7 @@ impl<'s> fmt::Display for Ast<'s> {
                     write!(f, ")")
                 },
                 Var(ident, initialiser) => {
-                    write!(f, "(define {}", ident)?;
+                    write!(f, "(def {}", ident)?;
                     if let Some(expr) = initialiser {
                         write!(f, " ")?;
                         print_expression(f, ast.expression(*expr), ast)?;

@@ -133,3 +133,14 @@ fn native_calls_must_have_correct_arity() {
 
 // Native function with parameters
 // Native fn with incorrect types
+
+#[test]
+fn functions_can_be_defined_and_called() {
+    assert_eq!("In function\n", lox_stdout!{
+        fun print_this(string) {
+            print string;
+        }
+
+        print_this("In function")
+    });
+}

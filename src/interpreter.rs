@@ -39,7 +39,7 @@ pub enum Value {
     Number(f64),
     String(String),
     Boolean(bool),
-    Function(Vec<String>, Vec<StmtIndex>),
+    Function(Vec<String>, StmtIndex),
     NativeFunction(NativeFnIndex),
 }
 
@@ -236,6 +236,16 @@ fn eval_statement<'s>(
             eval_expression(ast.expression(*expression), ast, env)
             .map(|v| Some(v)),
 
+        Fun(name, parameters, body) => {
+            let params = parameters.iter()
+                .map(|t| t.lexeme.to_owned())
+                .collect();
+            let function = Function(params, *body);
+            env.define(name.lexeme, function);
+
+            Ok(None)
+        },
+
         If(expression, then_block, optional_else_block) => {
             let condition = eval_expression(
                 ast.expression(*expression), ast, env
@@ -384,12 +394,9 @@ fn eval_expression<'s>(
                     }
 
                     let mut fn_env = Scope { bindings, parent: env };
-                    let mut last_value = None;
-                    for statement in body {
-                        last_value = eval_statement(
-                            ast.statement(statement), ast, &mut fn_env
-                        )?;
-                    }
+                    let last_value = eval_statement(
+                        ast.statement(body), ast, &mut fn_env
+                    )?;
 
                     Ok(last_value.unwrap_or(Nil))
                 },
