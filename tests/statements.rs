@@ -1,5 +1,7 @@
 mod utils;
 
+use rlox::Value::*;
+
 use utils::*;
 
 #[test]
@@ -142,5 +144,46 @@ fn functions_can_be_defined_and_called() {
         }
 
         print_this("In function")
+    });
+}
+
+#[test]
+fn functions_can_return_at_any_point() {
+    assert_eq!("One\n", lox_stdout!{
+        fun early_return() {
+            print "One";
+            return;
+            print "Two";
+        }
+
+        early_return()
+    });
+}
+
+#[test]
+fn return_statements_escape_any_enclosing_non_function_scope() {
+    assert_eq!("One\n", lox_stdout!{
+        fun early_return() {
+            {
+                print "One";
+                {
+                    return;
+                }
+            }
+            print "Two";
+        }
+
+        early_return()
+    });
+}
+
+#[test]
+fn functions_may_return_a_value() {
+    assert_eq!(Some(Number(1.0)), lox!{
+        fun one() {
+            return 1;
+        }
+
+        one()
     });
 }

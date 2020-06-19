@@ -21,6 +21,7 @@ pub enum Statement<'s> {
     If(ExprIndex, StmtIndex, Option<StmtIndex>),
     While(ExprIndex, StmtIndex),
     Print(ExprIndex),
+    Return(Token<'s>, Option<ExprIndex>),
     Var(Token<'s>, Option<ExprIndex>),
     Block(Vec<StmtIndex>),
 }
@@ -281,6 +282,12 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 self.print_statement()
             },
 
+            Some(token @ Token { token_type: Return, .. }) => {
+                let keyword = *token;
+                self.advance();
+                self.return_statement(keyword)
+            },
+
             Some(token @ Token { token_type: LeftBrace, .. }) => {
                 let opening_brace = *token;
                 self.advance();
@@ -371,6 +378,18 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         self.consume_terminator()?;
 
         Ok(Some(self.add_stmt(Statement::Print(expression))))
+    }
+
+    fn return_statement(&mut self, keyword: Token<'s>) -> StmtResult<'s> {
+        let return_value = if self.match_token(Semicolon)? {
+            None
+        } else {
+            let expression = self.expression()?;
+            self.consume_terminator()?;
+            Some(expression)
+        };
+
+        Ok(Some(self.add_stmt(Statement::Return(keyword, return_value))))
     }
 
     fn block(&mut self, opening_brace: Token<'s>) -> StmtResult<'s> {
@@ -693,6 +712,13 @@ impl<'s> fmt::Display for Ast<'s> {
                 Print(expression) => {
                     write!(f, "(print ")?;
                     print_expression(f, ast.expression(*expression), ast)?;
+                    write!(f, ")")
+                },
+                Return(_location, expression) => {
+                    write!(f, "(return")?;
+                    if let Some(expression) = expression {
+                        print_expression(f, ast.expression(*expression), ast)?;
+                    }
                     write!(f, ")")
                 },
                 Var(ident, initialiser) => {

@@ -80,7 +80,10 @@ pub enum RuntimeError<'s> {
         expected: usize,
         provided: usize,
         location: Token<'s>
-    }
+    },
+
+    #[error("Unhandled stack unwind")]
+    StackUnwind(Option<Value>),
 }
 
 impl Value {
@@ -280,6 +283,18 @@ fn eval_statement<'s>(
             Ok(None)
         },
 
+        Return(_token, expression) => {
+            let return_value = if let Some(expression) = expression {
+                Some(eval_expression(ast.expression(*expression), ast, env)?)
+            } else {
+                None
+            };
+
+            // This is a small abuse of the error handling, but it's the exact
+            // unwind semantics that we want and by far the simplest way.
+            Err(RuntimeError::StackUnwind(return_value))
+        },
+
         Var(ident, initialiser) => {
             let value = if let Some(initialiser) = initialiser {
                 eval_expression(ast.expression(*initialiser), ast, env)?
@@ -293,15 +308,12 @@ fn eval_statement<'s>(
 
         Block(statements) => {
             let mut scope = Scope::new(env);
-            let mut last_value = None;
 
             for statement in statements {
-                last_value = eval_statement(
-                    ast.statement(*statement), ast, &mut scope
-                )?;
+                eval_statement(ast.statement(*statement), ast, &mut scope)?;
             }
 
-            Ok(last_value)
+            Ok(None)
         }
     }
 }
@@ -375,7 +387,7 @@ fn eval_expression<'s>(
         },
         Call(callee, token, arguments) => {
             match eval_expression(ast.expression(*callee), ast, env)? {
-                Function(parameters, body) => {
+                Function(parameters, body) => {   // body is always a block
                     if arguments.len() != parameters.len() {
                         return Err(RuntimeError::ArityMismatch {
                             expected: parameters.len(),
@@ -394,17 +406,17 @@ fn eval_expression<'s>(
                     }
 
                     let mut fn_env = Scope { bindings, parent: env };
-                    let last_value = eval_statement(
-                        ast.statement(body), ast, &mut fn_env
-                    )?;
-
-                    Ok(last_value.unwrap_or(Nil))
+                    match eval_statement(ast.statement(body), ast, &mut fn_env) {
+                        Ok(return_value)
+                            => Ok(return_value.unwrap_or(Nil)),
+                        Err(RuntimeError::StackUnwind(return_value))
+                            => Ok(return_value.unwrap_or(Nil)),
+                        Err(a_real_error)
+                            => Err(a_real_error),
+                    }
                 },
 
                 NativeFunction(function) => {
-                    // eval args
-                    // lookup function in env
-                    // call closure directly with arguments vec
                     let arguments = arguments.iter()
                         .map(|a| eval_expression(ast.expression(*a), ast, env))
                         .collect::<Result<Vec<Value>, _>>()?;
