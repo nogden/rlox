@@ -1,4 +1,4 @@
-use crate::{Value, NativeError};
+use crate::interpreter::{Value, NativeError};
 
 use std::time::SystemTime;
 

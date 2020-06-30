@@ -154,7 +154,6 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         }
     }
 
-
     fn synchronise(&mut self) {
         loop {
             match self.peek() {

@@ -1,37 +1,18 @@
-use std::{io, collections::HashMap};
+use std::{io, fmt, collections::HashMap};
 
 use thiserror::Error;
 
 use crate::{
     token::{Token, TokenType},
-    parser::{Ast, Expression, Expression::*, Statement, Statement::*, StmtIndex},
-    NativeError,
+    parser::{Ast, Expression::*, Statement::*, StmtIndex, ExprIndex},
 };
 
-pub trait Evaluate<'s> {
-    fn evaluate(&self, env: &mut dyn Environment<'s>) -> EvalResult<'s>;
+pub struct Interpreter<'io> {
+    globals: Scope,
+    stack: Vec<Scope>,                // Copy the current stack and store in
+    stdout: &'io mut dyn io::Write,    // the function to create a closure
+    native_functions: Vec<NativeFn>,
 }
-
-pub trait Environment<'s> {
-    fn stdout(&mut self) -> &mut dyn io::Write;
-
-    fn global_scope(&mut self) -> &mut dyn Environment<'s>;
-
-    fn define(&mut self, identifier: &str, value: Value);
-
-    fn assign(
-        &mut self, identifier: &Token<'s>, value: Value
-    ) -> Result<(), RuntimeError<'s>>;
-
-    fn resolve(&self, identifier: &Token) -> Option<Value>;
-
-    fn call_native_fn(
-        &mut self, function: NativeFnIndex, arguments: &Vec<Value>
-    ) -> Result<Value, NativeError>;
-}
-
-type EvalResult<'s> = Result<Option<Value>, RuntimeError<'s>>;
-type ExprResult<'s> = Result<Value, RuntimeError<'s>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -42,6 +23,8 @@ pub enum Value {
     Function(Vec<String>, StmtIndex),
     NativeFunction(NativeFnIndex),
 }
+
+pub type NativeFn = fn(&Vec<Value>) -> Result<Value, NativeError>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NativeFnIndex(usize);
@@ -86,6 +69,312 @@ pub enum RuntimeError<'s> {
     StackUnwind(Option<Value>),
 }
 
+#[derive(Clone, Debug)]
+pub enum NativeError {
+    ArityMismatch(usize),
+    TypeMismatch(&'static str, Value),
+    Failed(String),
+}
+
+type Scope = HashMap<String, Value>;
+type EvalResult<'s> = Result<Option<Value>, RuntimeError<'s>>;
+type ExprResult<'s> = Result<Value, RuntimeError<'s>>;
+
+impl<'io> Interpreter<'io> {
+    pub fn new(stdout: &'io mut dyn io::Write) -> Interpreter<'io> {
+        Interpreter {
+            globals: Scope::new(),
+            stack: Vec::new(),
+            stdout,
+            native_functions: Vec::new(),
+        }
+    }
+
+    pub fn expose<T: AsRef<str>>(&mut self, name: T, function: NativeFn) {
+        let index = self.native_functions.len();
+        self.native_functions.push(function);
+        self.globals.insert(name.as_ref().to_owned(), Value::native_fn(index));
+    }
+
+    pub fn evaluate<'s>(&mut self, ast: &Ast<'s>) -> EvalResult<'s> {
+        let mut last_value = None;
+        for statement in ast.top_level_statements() {
+            last_value = self.eval_statement(*statement, ast)?;
+        }
+
+         Ok(last_value)
+    }
+
+    fn push_scope(&mut self, new_scope: Scope) {
+        self.stack.push(new_scope)
+    }
+
+    fn pop_scope(&mut self) -> Scope {
+        self.stack.pop().expect("Attempt to pop empty stack")
+    }
+
+    fn define(&mut self, identifier: &str, value: Value) {
+        if let Some(active_scope) = self.stack.last_mut() {
+            let _ = active_scope.insert(identifier.to_owned(), value);
+        } else {
+            let _ = self.globals.insert(identifier.to_owned(), value);
+        }
+    }
+
+    fn resolve(&self, identifier: &str) -> Option<Value> {
+        for scope in self.stack.iter().rev() {
+            if let Some(value) = scope.get(identifier) {
+                return Some(value.clone())
+            }
+        }
+
+        self.globals.get(identifier).cloned()
+    }
+
+    fn assign(&mut self, identifier: &str, new_value: Value) -> Option<&Value> {
+        for scope in self.stack.iter_mut().rev() {
+            if let Some(bound_value) = scope.get_mut(identifier) {
+                *bound_value = new_value;
+                return Some(bound_value)
+            }
+        }
+
+        if let Some(bound_value) = self.globals.get_mut(identifier) {
+            *bound_value = new_value;
+            Some(bound_value)
+        } else {
+            None
+        }
+    }
+
+    fn call_native_fn(
+        &mut self, function: NativeFnIndex, arguments: &Vec<Value>
+    ) -> Result<Value, NativeError> {
+        let f = self.native_functions[function.0];
+        f(arguments)
+    }
+
+    fn eval_statement<'s>(
+        &mut self, statement: StmtIndex, ast: &Ast<'s>
+    ) -> EvalResult<'s> {
+        use Value::*;
+
+        match ast.statement(statement) {
+            Expression(expr) => self.eval_expression(*expr, ast).map(|v| Some(v)),
+
+            Fun(name, parameters, body) => {
+                let params = parameters.iter()
+                    .map(|t| t.lexeme.to_owned())
+                    .collect();
+                let function = Function(params, *body);
+                self.define(name.lexeme, function);
+
+                Ok(None)
+            },
+
+            If(condition, then_block, optional_else_block) => {
+                if self.eval_expression(*condition, ast)?.is_truthy() {
+                    self.eval_statement(*then_block, ast)?;
+                } else if let Some(else_block) = optional_else_block {
+                    self.eval_statement(*else_block, ast)?;
+                }
+
+                Ok(None)
+            },
+
+            While(condition, body) => {
+                while self.eval_expression(*condition, ast)?.is_truthy() {
+                    self.eval_statement(*body, ast)?;
+                }
+
+                Ok(None)
+            }
+
+            Print(expr) => {
+                match self.eval_expression(*expr, ast)? {
+                    String(s) => writeln!(self.stdout, "{}", s),
+                    result    => writeln!(self.stdout, "{}", result)
+                }.expect("Failed to write to stdout");
+
+                Ok(None)
+            },
+
+            Return(_token, optional_expression) => {
+                let return_value = if let Some(expr) = optional_expression {
+                    Some(self.eval_expression(*expr, ast)?)
+                } else {
+                    None
+                };
+
+                // This is a small abuse of the error handling, but it's the exact
+                // unwind semantics that we want and by far the simplest way.
+                Err(RuntimeError::StackUnwind(return_value))
+            },
+
+            Var(identifier, optional_initialiser) => {
+                let value = if let Some(initialiser) = optional_initialiser {
+                    self.eval_expression(*initialiser, ast)?
+                } else {
+                    Nil
+                };
+                self.define(identifier.lexeme, value);
+
+                Ok(None)
+            },
+
+            Block(statements) => {
+                self.push_scope(Scope::default());
+                for statement in statements {
+                    self.eval_statement(*statement, ast)?;
+                }
+                let _ = self.pop_scope();
+
+                Ok(None)
+            }
+        }
+    }
+
+    fn eval_expression<'s>(
+        &mut self, expression: ExprIndex, ast: &Ast<'s>
+    ) -> ExprResult<'s> {
+        use Value::*;
+        use TokenType as TT;
+
+        match ast.expression(expression) {
+            Literal(token_type) => match *token_type {
+                TT::Number(n)  => Ok(Number(n)),
+                TT::String(s)  => Ok(String(s.to_owned())),
+                TT::True       => Ok(Boolean(true)),
+                TT::False      => Ok(Boolean(false)),
+                TT::Nil        => Ok(Nil),
+                _ => unreachable!(
+                    "Literal other than (number | string | true | false | nil)"
+                )
+            },
+
+            Grouping(expr) => self.eval_expression(*expr, ast),
+
+            Unary(token, rhs) => {
+                let value = self.eval_expression(*rhs, ast)?;
+
+                match token.token_type {
+                    TT::Minus => negate(&value, token),
+                    TT::Bang  => Ok(Boolean(!value.is_truthy())),
+                    _ => unreachable!("Unary operation other than (!|-)")
+                }
+            },
+
+            Binary(lhs, token, rhs) => {
+                let left  = self.eval_expression(*lhs, ast)?;
+                let right = self.eval_expression(*rhs, ast)?;
+
+                match token.token_type {
+                    TT::Greater      => greater(&left, &right, token),
+                    TT::GreaterEqual => greater_eq(&left, &right, token),
+                    TT::Less         => less(&left, &right, token),
+                    TT::LessEqual    => less_eq(&left, &right, token),
+                    TT::EqualEqual   => Ok(Boolean(left == right)),
+                    TT::BangEqual    => Ok(Boolean(left != right)),
+                    TT::Minus        => minus(&left, &right, token),
+                    TT::Slash        => divide(&left, &right, token),
+                    TT::Star         => multiply(&left, &right, token),
+                    TT::Plus         => plus(&left, &right, token),
+                    _ => unreachable!("Binary operator other than (+|-|*|/)")
+                }
+            },
+
+            Logical(lhs, token, rhs) => {
+                let left = self.eval_expression(*lhs, ast)?;
+
+                match token.token_type {
+                    TT::And => if left.is_falsey() { return Ok(left) },
+                    TT::Or  => if left.is_truthy() { return Ok(left) },
+                    _ => unreachable!("Logical operator other than (and | or)")
+                }
+
+                self.eval_expression(*rhs, ast)
+            },
+
+            Variable(identifier) => self.resolve(identifier.lexeme)
+                .ok_or(RuntimeError::UnresolvedIdentifier(*identifier)),
+
+            Assign(variable, expr) => {
+                let value = self.eval_expression(*expr, ast)?;
+                if self.assign(variable.lexeme, value.clone()).is_some() {
+                    Ok(value)
+                } else {
+                    Err(RuntimeError::UnresolvedIdentifier(*variable))
+                }
+            },
+
+            Call(callee, token, args) => {
+                match self.eval_expression(*callee, ast)? {
+                    Function(params, body) => {   // body is always a block
+                        if args.len() != params.len() {
+                            return Err(RuntimeError::ArityMismatch {
+                                expected: params.len(),
+                                provided: args.len(),
+                                location: *token
+                            })
+                        }
+
+                        let arg_param_pairs = args.iter().zip(params.iter());
+                        for (arg, parameter) in arg_param_pairs {
+                            let argument = self.eval_expression(*arg, ast)?;
+                            self.define(parameter, argument);
+                        }
+
+                        self.push_scope(Scope::default());
+                        let return_value = self.eval_statement(body, ast);
+                        let _ = self.pop_scope();
+
+                        match return_value {
+                            Ok(value)
+                                => Ok(value.unwrap_or(Nil)),
+                            Err(RuntimeError::StackUnwind(value))
+                                => Ok(value.unwrap_or(Nil)),
+                            Err(a_real_error)
+                                => Err(a_real_error),
+                        }
+                    },
+
+                    NativeFunction(function) => {
+                        let arguments = args.iter()
+                            .map(|arg| self.eval_expression(*arg, ast))
+                            .collect::<Result<Vec<Value>, _>>()?;
+
+                        self.call_native_fn(function, &arguments).map_err(|e| {
+                            match e {
+                                NativeError::ArityMismatch(expected_arity) => {
+                                    RuntimeError::ArityMismatch {
+                                        expected: expected_arity,
+                                        provided: arguments.len(),
+                                        location: *token
+                                    }
+                                }
+                                NativeError::TypeMismatch(expected, provided) => {
+                                    RuntimeError::TypeMismatch {
+                                        expected,
+                                        provided,
+                                        location: *token
+                                    }
+                                }
+                                _ => panic!("Native call returned error")
+                            }
+                        })
+                    }
+
+                    value => return Err(RuntimeError::TypeMismatch {
+                        expected: "callable type",
+                        provided: value,
+                        location: *token
+                    })
+                }
+            }
+        }
+    }
+}
+
 impl Value {
     fn is_truthy(&self) -> bool {
         match self {
@@ -116,8 +405,6 @@ impl Value {
     }
 }
 
-use std::fmt;
-
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Value::*;
@@ -129,325 +416,6 @@ impl fmt::Display for Value {
             Boolean(b)        => write!(f, "{}", b),
             Function(_, _)    => write!(f, "<fn>"),
             NativeFunction(_) => write!(f, "<native fn>"),
-        }
-    }
-}
-
-
-impl<'s> Evaluate<'s> for Ast<'s> {
-    fn evaluate(&self, env: &mut dyn Environment<'s>) -> EvalResult<'s> {
-        let mut last_value = None;
-        for statement in self.top_level_statements() {
-            last_value = eval_statement(self.statement(*statement), self, env)?;
-        }
-
-        Ok(last_value)
-    }
-}
-
-struct Scope<'p, 's> {
-    parent: &'p mut dyn Environment<'s>,
-    bindings: HashMap<String, Value>,
-}
-
-impl<'p, 's> Scope<'p, 's> {
-    fn new(parent_scope: &'p mut dyn Environment<'s>) -> Scope<'p, 's> {
-        Scope { parent: parent_scope, bindings: HashMap::new() }
-    }
-}
-
-impl<'p, 's> Environment<'s> for Scope<'p, 's> {
-    fn stdout(&mut self) -> &mut dyn io::Write {
-        self.parent.stdout()
-    }
-
-    fn global_scope(&mut self) -> &mut dyn Environment<'s> {
-        self.parent.global_scope()
-    }
-
-    fn define(&mut self, identifier: &str, value: Value) {
-        let _ = self.bindings.insert(identifier.to_owned(), value);
-    }
-
-    fn assign(
-        &mut self, identifier: &Token<'s>, value: Value
-    ) -> Result<(), RuntimeError<'s>> {
-        if let Some(bound_value) = self.bindings.get_mut(identifier.lexeme) {
-            *bound_value = value;
-            Ok(())
-        } else {
-            self.parent.assign(identifier, value)
-        }
-    }
-
-    fn resolve(&self, identifier: &Token) -> Option<Value> {
-        self.bindings.get(identifier.lexeme).cloned().or_else(||
-            self.parent.resolve(identifier)
-        )
-    }
-
-    fn call_native_fn(
-        &mut self, function: NativeFnIndex, arguments: &Vec<Value>
-    ) -> Result<Value, NativeError> {
-        self.global_scope().call_native_fn(function, arguments)
-    }
-}
-
-impl<'io, 's> Environment<'s> for crate::Lox<'io> {
-    fn stdout(&mut self) -> &mut dyn io::Write {
-        self.stdout
-    }
-
-    fn global_scope(&mut self) -> &mut dyn Environment<'s> {
-        self
-    }
-
-    fn define(&mut self, identifier: &str, value: Value) {
-        let _ = self.bindings.insert(identifier.to_owned(), value);
-    }
-
-    fn assign(
-        &mut self, identifier: &Token<'s>, value: Value,
-    ) -> Result<(), RuntimeError<'s>> {
-        if let Some(bound_value) = self.bindings.get_mut(identifier.lexeme) {
-            *bound_value = value;
-            Ok(())
-        } else {
-            Err(RuntimeError::UnresolvedIdentifier(*identifier))
-        }
-    }
-
-    fn resolve(&self, identifier: &Token) -> Option<Value> {
-        self.bindings.get(identifier.lexeme).cloned()
-    }
-
-    fn call_native_fn(
-        &mut self, function: NativeFnIndex, arguments: &Vec<Value>
-    ) -> Result<Value, NativeError> {
-        let f = self.native_functions[function.0];
-        f(arguments)
-    }
-}
-
-fn eval_statement<'s>(
-    statement: &Statement<'s>, ast: &Ast<'s>, env: &mut dyn Environment<'s>
-) -> EvalResult<'s> {
-    use Value::*;
-
-    match statement {
-        Expression(expression) =>
-            eval_expression(ast.expression(*expression), ast, env)
-            .map(|v| Some(v)),
-
-        Fun(name, parameters, body) => {
-            let params = parameters.iter()
-                .map(|t| t.lexeme.to_owned())
-                .collect();
-            let function = Function(params, *body);
-            env.define(name.lexeme, function);
-
-            Ok(None)
-        },
-
-        If(expression, then_block, optional_else_block) => {
-            let condition = eval_expression(
-                ast.expression(*expression), ast, env
-            )?;
-
-            if condition.is_truthy() {
-                eval_statement(ast.statement(*then_block), ast, env)?;
-            } else if let Some(else_block) = optional_else_block {
-                eval_statement(ast.statement(*else_block), ast, env)?;
-            }
-
-            Ok(None)
-        },
-
-        While(expression, statement) => {
-            let condition = ast.expression(*expression);
-            let body = ast.statement(*statement);
-
-            while eval_expression(condition, ast, env)?.is_truthy() {
-                eval_statement(body, ast, env)?;
-            }
-
-            Ok(None)
-        }
-
-        Print(expression) => {
-            match eval_expression(ast.expression(*expression), ast, env)? {
-                String(s) => writeln!(env.stdout(), "{}", s),
-                result    => writeln!(env.stdout(), "{}", result)
-            }.expect("Failed to write to stdout");
-
-            Ok(None)
-        },
-
-        Return(_token, expression) => {
-            let return_value = if let Some(expression) = expression {
-                Some(eval_expression(ast.expression(*expression), ast, env)?)
-            } else {
-                None
-            };
-
-            // This is a small abuse of the error handling, but it's the exact
-            // unwind semantics that we want and by far the simplest way.
-            Err(RuntimeError::StackUnwind(return_value))
-        },
-
-        Var(ident, initialiser) => {
-            let value = if let Some(initialiser) = initialiser {
-                eval_expression(ast.expression(*initialiser), ast, env)?
-            } else {
-                Nil
-            };
-            env.define(ident.lexeme, value);
-
-            Ok(None)
-        },
-
-        Block(statements) => {
-            let mut scope = Scope::new(env);
-
-            for statement in statements {
-                eval_statement(ast.statement(*statement), ast, &mut scope)?;
-            }
-
-            Ok(None)
-        }
-    }
-}
-
-fn eval_expression<'s>(
-    expression: &Expression<'s>, ast: &Ast<'s>, env: &mut dyn Environment<'s>
-) -> ExprResult<'s> {
-    use Value::*;
-    use TokenType as TT;
-
-    match expression {
-        Literal(token_type) => match *token_type {
-            TT::Number(n)  => Ok(Number(n)),
-            TT::String(s)  => Ok(String(s.to_owned())),
-            TT::True       => Ok(Boolean(true)),
-            TT::False      => Ok(Boolean(false)),
-            TT::Nil        => Ok(Nil),
-            _ => unreachable!(
-                "Literal other than (number | string | true | false | nil)"
-            )
-        },
-        Grouping(expr) => {
-            eval_expression(ast.expression(*expr), ast, env)
-        },
-        Unary(token, rhs) => {
-            let value = eval_expression(ast.expression(*rhs), ast, env)?;
-
-            match token.token_type {
-                TT::Minus => negate(&value, token),
-                TT::Bang  => Ok(Boolean(!value.is_truthy())),
-                _ => unreachable!("Unary operation other than (!|-)")
-            }
-        },
-        Binary(lhs, token, rhs) => {
-            let left  = eval_expression(ast.expression(*lhs), ast, env)?;
-            let right = eval_expression(ast.expression(*rhs), ast, env)?;
-
-            match token.token_type {
-                TT::Greater      => greater(&left, &right, token),
-                TT::GreaterEqual => greater_eq(&left, &right, token),
-                TT::Less         => less(&left, &right, token),
-                TT::LessEqual    => less_eq(&left, &right, token),
-                TT::EqualEqual   => Ok(Boolean(left == right)),
-                TT::BangEqual    => Ok(Boolean(left != right)),
-                TT::Minus        => minus(&left, &right, token),
-                TT::Slash        => divide(&left, &right, token),
-                TT::Star         => multiply(&left, &right, token),
-                TT::Plus         => plus(&left, &right, token),
-                _ => unreachable!("Binary operator other than (+|-|*|/)")
-            }
-        },
-        Logical(lhs, token, rhs) => {
-            let left = eval_expression(ast.expression(*lhs), ast, env)?;
-
-            match token.token_type {
-                TT::And => if left.is_falsey() { return Ok(left) },
-                TT::Or  => if left.is_truthy() { return Ok(left) },
-                _ => unreachable!("Logical operator other than (and | or)")
-            }
-
-            eval_expression(ast.expression(*rhs), ast, env)
-        },
-        Variable(identifier) => match env.resolve(identifier) { // TODO(nick): Replace with ok_or()?
-            Some(value) => Ok(value),
-            None        => Err(RuntimeError::UnresolvedIdentifier(*identifier))
-        },
-        Assign(variable, expression) => {
-            let value = eval_expression(ast.expression(*expression), ast, env)?;
-            env.assign(variable, value.clone())?;
-            Ok(value)
-        },
-        Call(callee, token, arguments) => {
-            match eval_expression(ast.expression(*callee), ast, env)? {
-                Function(parameters, body) => {   // body is always a block
-                    if arguments.len() != parameters.len() {
-                        return Err(RuntimeError::ArityMismatch {
-                            expected: parameters.len(),
-                            provided: arguments.len(),
-                            location: *token
-                        })
-                    }
-
-                    let mut bindings = HashMap::new();
-                    let arg_param_pairs = arguments.iter().zip(parameters.iter());
-                    for (arg, param) in arg_param_pairs {
-                        let argument = eval_expression(
-                            ast.expression(*arg), ast, env
-                        )?;
-                        bindings.insert(param.clone(), argument);
-                    }
-
-                    let mut fn_env = Scope { bindings, parent: env };
-                    match eval_statement(ast.statement(body), ast, &mut fn_env) {
-                        Ok(return_value)
-                            => Ok(return_value.unwrap_or(Nil)),
-                        Err(RuntimeError::StackUnwind(return_value))
-                            => Ok(return_value.unwrap_or(Nil)),
-                        Err(a_real_error)
-                            => Err(a_real_error),
-                    }
-                },
-
-                NativeFunction(function) => {
-                    let arguments = arguments.iter()
-                        .map(|a| eval_expression(ast.expression(*a), ast, env))
-                        .collect::<Result<Vec<Value>, _>>()?;
-
-                    env.call_native_fn(function, &arguments).map_err(|e| {
-                        match e {
-                            NativeError::ArityMismatch(expected_arity) => {
-                                RuntimeError::ArityMismatch {
-                                    expected: expected_arity,
-                                    provided: arguments.len(),
-                                    location: *token
-                                }
-                            }
-                            NativeError::TypeMismatch(expected, provided) => {
-                                RuntimeError::TypeMismatch {
-                                    expected,
-                                    provided,
-                                    location: *token
-                                }
-                            }
-                            _ => panic!("Native call returned error")
-                        }
-                    })
-                }
-
-                value => return Err(RuntimeError::TypeMismatch {
-                    expected: "callable type",
-                    provided: value,
-                    location: *token
-                })
-            }
         }
     }
 }
