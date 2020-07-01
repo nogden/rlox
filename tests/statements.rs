@@ -187,3 +187,35 @@ fn functions_may_return_a_value() {
         one()
     });
 }
+
+#[test]
+fn functions_may_reference_globals() {
+    assert_eq!("Global\n", lox_stdout!{
+        var x = "Global";
+
+        fun function() {
+            print x;
+        }
+
+        function()
+    });
+}
+
+#[test]
+fn functions_may_close_over_their_environment() {
+    assert_eq!("1\n2\n3\n", lox_stdout!{
+        fun create_counter() {
+            var count = 0;
+
+            fun add_one() {
+                count = count + 1;
+                print count;
+            }
+
+            return add_one;
+        }
+
+        var bump = create_counter();
+        bump(); bump(); bump();
+    });
+}

@@ -8,9 +8,10 @@ use crate::{
 };
 
 pub struct Interpreter<'io> {
-    globals: Scope,
-    stack: Vec<Scope>,                // Copy the current stack and store in
-    stdout: &'io mut dyn io::Write,    // the function to create a closure
+    globals: HashMap<String, Value>,
+    environments: Vec<Environment>,
+    stack: Option<EnvIndex>,
+    stdout: &'io mut dyn io::Write,
     native_functions: Vec<NativeFn>,
 }
 
@@ -20,7 +21,7 @@ pub enum Value {
     Number(f64),
     String(String),
     Boolean(bool),
-    Function(Vec<String>, StmtIndex),
+    Function(Vec<String>, StmtIndex, Option<EnvIndex>),
     NativeFunction(NativeFnIndex),
 }
 
@@ -28,6 +29,9 @@ pub type NativeFn = fn(&Vec<Value>) -> Result<Value, NativeError>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NativeFnIndex(usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnvIndex(usize);
 
 #[derive(Clone, Debug, Error)]
 pub enum RuntimeError<'s> {
@@ -76,15 +80,20 @@ pub enum NativeError {
     Failed(String),
 }
 
-type Scope = HashMap<String, Value>;
+struct Environment {
+    locals: HashMap<String, Value>,
+    parent: Option<EnvIndex>,
+}
+
 type EvalResult<'s> = Result<Option<Value>, RuntimeError<'s>>;
 type ExprResult<'s> = Result<Value, RuntimeError<'s>>;
 
 impl<'io> Interpreter<'io> {
     pub fn new(stdout: &'io mut dyn io::Write) -> Interpreter<'io> {
         Interpreter {
-            globals: Scope::new(),
-            stack: Vec::new(),
+            globals: HashMap::new(),
+            environments: Vec::new(),
+            stack: None,
             stdout,
             native_functions: Vec::new(),
         }
@@ -105,46 +114,65 @@ impl<'io> Interpreter<'io> {
          Ok(last_value)
     }
 
-    fn push_scope(&mut self, new_scope: Scope) {
-        self.stack.push(new_scope)
+    fn push_scope(&mut self) {
+        let env_index = self.environments.len();
+        self.environments.push(Environment {  // TODO(nick): Clean up envs that
+            locals: HashMap::new(),           // aren't captured in closures.
+            parent: self.stack
+        });
+        self.stack = Some(EnvIndex(env_index));
     }
 
-    fn pop_scope(&mut self) -> Scope {
-        self.stack.pop().expect("Attempt to pop empty stack")
+    fn pop_scope(&mut self) -> EnvIndex {
+        let index = self.stack.expect("Attempt to pop empty stack");
+        let leaving_scope = &self.environments[index.0];
+        self.stack = leaving_scope.parent;
+        index
     }
 
     fn define(&mut self, identifier: &str, value: Value) {
-        if let Some(active_scope) = self.stack.last_mut() {
-            let _ = active_scope.insert(identifier.to_owned(), value);
+        if let Some(index) = self.stack {
+            let active_scope = &mut self.environments[index.0];
+            let _ = active_scope.locals.insert(identifier.to_owned(), value);
         } else {
             let _ = self.globals.insert(identifier.to_owned(), value);
         }
     }
 
     fn resolve(&self, identifier: &str) -> Option<Value> {
-        for scope in self.stack.iter().rev() {
-            if let Some(value) = scope.get(identifier) {
+        let mut stack_frame = self.stack;
+        while let Some(index) = stack_frame {
+            let environment = &self.environments[index.0];
+            if let Some(value) = environment.locals.get(identifier) {
                 return Some(value.clone())
             }
+            stack_frame = environment.parent;
         }
 
         self.globals.get(identifier).cloned()
     }
 
-    fn assign(&mut self, identifier: &str, new_value: Value) -> Option<&Value> {
-        for scope in self.stack.iter_mut().rev() {
-            if let Some(bound_value) = scope.get_mut(identifier) {
+    fn assign(&mut self, identifier: &str, new_value: Value) -> bool {
+        let mut stack_frame = self.stack;
+        while let Some(index) = stack_frame {
+            let environment = &mut self.environments[index.0];
+            if let Some(bound_value) = environment.locals.get_mut(identifier) {
                 *bound_value = new_value;
-                return Some(bound_value)
+                return true
             }
+            stack_frame = environment.parent;
         }
 
         if let Some(bound_value) = self.globals.get_mut(identifier) {
             *bound_value = new_value;
-            Some(bound_value)
+            true
         } else {
-            None
+            false
         }
+    }
+
+    fn swap_stack(&mut self, new_stack: Option<EnvIndex>) -> Option<EnvIndex> {
+        std::mem::replace(&mut self.stack, new_stack)
     }
 
     fn call_native_fn(
@@ -166,7 +194,7 @@ impl<'io> Interpreter<'io> {
                 let params = parameters.iter()
                     .map(|t| t.lexeme.to_owned())
                     .collect();
-                let function = Function(params, *body);
+                let function = Function(params, *body, self.stack);
                 self.define(name.lexeme, function);
 
                 Ok(None)
@@ -223,7 +251,7 @@ impl<'io> Interpreter<'io> {
             },
 
             Block(statements) => {
-                self.push_scope(Scope::default());
+                self.push_scope();
                 for statement in statements {
                     self.eval_statement(*statement, ast)?;
                 }
@@ -300,7 +328,7 @@ impl<'io> Interpreter<'io> {
 
             Assign(variable, expr) => {
                 let value = self.eval_expression(*expr, ast)?;
-                if self.assign(variable.lexeme, value.clone()).is_some() {
+                if self.assign(variable.lexeme, value.clone()) {
                     Ok(value)
                 } else {
                     Err(RuntimeError::UnresolvedIdentifier(*variable))
@@ -309,7 +337,8 @@ impl<'io> Interpreter<'io> {
 
             Call(callee, token, args) => {
                 match self.eval_expression(*callee, ast)? {
-                    Function(params, body) => {   // body is always a block
+                    // body is always a block
+                    Function(params, body, closure) => {
                         if args.len() != params.len() {
                             return Err(RuntimeError::ArityMismatch {
                                 expected: params.len(),
@@ -324,9 +353,11 @@ impl<'io> Interpreter<'io> {
                             self.define(parameter, argument);
                         }
 
-                        self.push_scope(Scope::default());
+                        let stack = self.swap_stack(closure);
+                        self.push_scope();
                         let return_value = self.eval_statement(body, ast);
-                        let _ = self.pop_scope();
+                        self.pop_scope();
+                        self.swap_stack(stack);
 
                         match return_value {
                             Ok(value)
@@ -395,7 +426,7 @@ impl Value {
             Number(_)         => "number",
             String(_)         => "string",
             Boolean(_)        => "boolean",
-            Function(_, _)    => "function",
+            Function(_, _, _) => "function",
             NativeFunction(_) => "native function"
         }
     }
@@ -414,7 +445,7 @@ impl fmt::Display for Value {
             Number(n)         => write!(f, "{}", n),
             String(s)         => write!(f, "\"{}\"", s),
             Boolean(b)        => write!(f, "{}", b),
-            Function(_, _)    => write!(f, "<fn>"),
+            Function(_, _, _) => write!(f, "<fn>"),
             NativeFunction(_) => write!(f, "<native fn>"),
         }
     }

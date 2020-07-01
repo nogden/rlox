@@ -13,7 +13,7 @@ use std::{
     error::Error,
 };
 
-pub use interpreter::{Value, NativeFn};
+pub use interpreter::{Value, NativeFn, Interpreter};
 
 pub type LoxResult<'s, T> = std::result::Result<T, LoxError<'s>>;
 
@@ -30,12 +30,12 @@ pub enum Status {
 }
 
 pub struct Lox<'io> {
-    interpreter: interpreter::Interpreter<'io>
+    interpreter: Interpreter<'io>
 }
 
 impl<'io> Lox<'io> {
     pub fn new(stdout: &'io mut dyn io::Write) -> Lox<'io> {
-        let mut interpreter = interpreter::Interpreter::new(stdout);
+        let mut interpreter = Interpreter::new(stdout);
         interpreter.expose("elapsed_time", native_functions::elapsed_time);
 
         Lox { interpreter }
