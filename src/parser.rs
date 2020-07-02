@@ -38,10 +38,10 @@ pub enum Expression<'s> {
     Variable(Token<'s>),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ExprIndex(usize); // A reference to an expression in the Ast
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct StmtIndex(usize); // A reference to a statement in the Ast
 
 type StmtResult<'s> = Result<Option<StmtIndex>, ParseError<'s>>;

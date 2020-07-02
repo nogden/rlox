@@ -3,6 +3,7 @@
 mod token;
 mod scanner;
 mod parser;
+mod resolver;
 mod interpreter;
 mod error;
 mod native_functions;
@@ -49,6 +50,7 @@ impl<'io> Lox<'io> {
         use scanner::Scanner;
 
         let ast = parser::parse(source_code.tokens())?;
+        let ref_table = resolver::resolve_references(&ast)?;
         let value = self.interpreter.evaluate(&ast)?;
 
         Ok((value, Status::AwaitingInput))
@@ -73,6 +75,12 @@ impl<'s> fmt::Display for LoxError<'s> {
 
             RuntimeError(runtime_error) => write!(f, "ERROR {}", runtime_error)
         }
+    }
+}
+
+impl<'s> From<error::ParseError<'s>> for LoxError<'s> {
+    fn from(error: error::ParseError<'s>) -> Self {
+        Self::ParseErrors(vec![error])
     }
 }
 

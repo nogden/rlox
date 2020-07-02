@@ -35,4 +35,7 @@ pub enum ParseError<'s> {
     #[error("(line {}): Function takes more than the maximum number \
              of arguments (255)", .0.line)]
     TooManyArguments(Token<'s>),
+
+    #[error("(line {}): Definition of variable references itself", .0.line)]
+    RecursiveDefinition(Token<'s>),
 }

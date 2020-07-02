@@ -219,3 +219,19 @@ fn functions_may_close_over_their_environment() {
         bump(); bump(); bump();
     });
 }
+
+#[test]
+fn closure_environments_are_unaffected_by_later_definitions() {
+    assert_eq!("Global\nGlobal\n", lox_stdout!{
+        var a = "Global";
+        {
+            fun showA() {
+                print a;
+            }
+
+            showA();
+            var a = "Local";
+            showA();
+        }
+    });
+}
