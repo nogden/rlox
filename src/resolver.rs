@@ -38,8 +38,8 @@ impl<'s> Resolver<'s> {
             Expression(expr) => self.resolve_expression(*expr, ast)?,
 
             Fun(name, parameters, body) => {
-                self.declare(name.lexeme);
-                self.define(name.lexeme);
+                self.declare(name)?;
+                self.define(name);
                 self.resolve_fn(parameters, body, ast)?;
             },
 
@@ -65,11 +65,11 @@ impl<'s> Resolver<'s> {
             },
 
             Var(identifier, optional_initialiser) => {
-                self.declare(identifier.lexeme);
+                self.declare(identifier)?;
                 if let Some(initialiser) = optional_initialiser {
                     self.resolve_expression(*initialiser, ast)?;
                 }
-                self.define(identifier.lexeme);
+                self.define(identifier);
             },
 
             Block(statements) => {
@@ -115,12 +115,12 @@ impl<'s> Resolver<'s> {
                     }
                 }
 
-                self.resolve(expression, identifier.lexeme);
+                self.resolve(expression, identifier);
             }
 
             Assign(variable, expr) => {
                 self.resolve_expression(*expr, ast)?;
-                self.resolve(*expr, variable.lexeme)
+                self.resolve(*expr, variable)
             },
 
             Call(callee, _token, args) => {
@@ -139,8 +139,8 @@ impl<'s> Resolver<'s> {
     ) -> Result<(), ParseError<'s>> {
         self.scopes.push(HashMap::new());
         for parameter in parameters.iter() {
-            self.declare(parameter.lexeme);
-            self.define(parameter.lexeme);
+            self.declare(parameter)?;
+            self.define(parameter);
         }
         for statement in body {
             self.resolve_statement(*statement, ast)?;
@@ -149,21 +149,26 @@ impl<'s> Resolver<'s> {
         Ok(())
     }
 
-    fn declare(&mut self, identifier: &'s str) {
+    fn declare(&mut self, identifier: &Token<'s>) -> Result<(), ParseError<'s>> {
         if let Some(current_scope) = self.scopes.last_mut() {
-            current_scope.insert(identifier, false);
+            if current_scope.contains_key(identifier.lexeme) {
+                return Err(ParseError::Redeclaration(*identifier))
+            }
+            current_scope.insert(identifier.lexeme, false);
+        }
+
+        Ok(())
+    }
+
+    fn define(&mut self, identifier: &Token<'s>) {
+        if let Some(current_scope) = self.scopes.last_mut() {
+            let _ = current_scope.insert(identifier.lexeme, true);
         }
     }
 
-    fn define(&mut self, identifier: &'s str) {
-        if let Some(current_scope) = self.scopes.last_mut() {
-            let _ = current_scope.insert(identifier, true);
-        }
-    }
-
-    fn resolve(&mut self, expression: ExprIndex, identifier: &'s str) {
+    fn resolve(&mut self, expression: ExprIndex, identifier: &Token<'s>) {
         for (i, scope) in self.scopes.iter().rev().enumerate() {
-            if scope.contains_key(identifier) {
+            if scope.contains_key(identifier.lexeme) {
                 let _ = self.resolved.insert(expression, i);
                 return
             }

@@ -38,4 +38,7 @@ pub enum ParseError<'s> {
 
     #[error("(line {}): Definition of variable references itself", .0.line)]
     RecursiveDefinition(Token<'s>),
+
+    #[error("(line {}): Redeclaration of variable '{0}')", .0.line)]
+    Redeclaration(Token<'s>),
 }

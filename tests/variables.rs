@@ -43,6 +43,17 @@ fn using_an_undeclared_variable_is_an_error() {
 }
 
 #[test]
+#[should_panic(expected = "Redeclaration")]
+fn declaring_the_same_variable_more_than_once_in_a_block_is_an_error() {
+    lox!{
+        {
+            var a = "First";
+            var a = "Second";
+        }
+    };
+}
+
+#[test]
 fn variables_are_scoped_to_the_block_in_which_they_are_declared() {
     let expected = "outer\n\
                     inner (shadowing outer)\n\
