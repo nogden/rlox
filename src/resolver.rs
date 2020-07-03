@@ -14,6 +14,7 @@ pub fn resolve_references<'s>(
     let mut resolver = Resolver {
         scopes: Vec::new(),
         resolved: ReferenceTable::new(),
+        scope_type: ScopeType::Global,
     };
 
     for statement in ast.top_level_statements() {
@@ -26,7 +27,11 @@ pub fn resolve_references<'s>(
 struct Resolver<'s> {
     scopes: Vec<HashMap<&'s str, bool>>,
     resolved: ReferenceTable,
+    scope_type: ScopeType,
 }
+
+#[derive(Clone, Copy, PartialEq)]
+enum ScopeType { Global, Function }
 
 impl<'s> Resolver<'s> {
     fn resolve_statement(
@@ -40,7 +45,7 @@ impl<'s> Resolver<'s> {
             Fun(name, parameters, body) => {
                 self.declare(name)?;
                 self.define(name);
-                self.resolve_fn(parameters, body, ast)?;
+                self.resolve_fn(parameters, body, ast, ScopeType::Function)?;
             },
 
             If(condition, then_block, optional_else_block) => {
@@ -58,7 +63,11 @@ impl<'s> Resolver<'s> {
 
             Print(expr) => self.resolve_expression(*expr, ast)?,
 
-            Return(_token, optional_expression) => {
+            Return(token, optional_expression) => {
+                if self.scope_type == ScopeType::Global {
+                    return Err(ParseError::TopLevelReturn(*token))
+                }
+
                 if let Some(expression) = optional_expression {
                     self.resolve_expression(*expression, ast)?;
                 }
@@ -135,8 +144,15 @@ impl<'s> Resolver<'s> {
     }
 
     fn resolve_fn(
-        &mut self, parameters: &Vec<Token<'s>>, body: &Vec<StmtIndex>, ast: &Ast<'s>
+        &mut self,
+        parameters: &Vec<Token<'s>>,
+        body: &Vec<StmtIndex>,
+        ast: &Ast<'s>,
+        fn_type: ScopeType
     ) -> Result<(), ParseError<'s>> {
+        let enclosing_scope_type = self.scope_type;
+        self.scope_type = fn_type;
+
         self.scopes.push(HashMap::new());
         for parameter in parameters.iter() {
             self.declare(parameter)?;
@@ -146,6 +162,8 @@ impl<'s> Resolver<'s> {
             self.resolve_statement(*statement, ast)?;
         }
         let _ = self.scopes.pop();
+
+        self.scope_type = enclosing_scope_type;
         Ok(())
     }
 

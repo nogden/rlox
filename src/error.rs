@@ -41,4 +41,7 @@ pub enum ParseError<'s> {
 
     #[error("(line {}): Redeclaration of variable '{0}')", .0.line)]
     Redeclaration(Token<'s>),
+
+    #[error("(line {}): Attempt to return from global scope", .0.line)]
+    TopLevelReturn(Token<'s>),
 }

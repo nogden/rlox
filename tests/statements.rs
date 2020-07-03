@@ -189,6 +189,12 @@ fn functions_may_return_a_value() {
 }
 
 #[test]
+#[should_panic(expected = "Attempt to return from global scope")]
+fn returning_from_the_top_level_is_an_error() {
+    lox!{ return; };
+}
+
+#[test]
 fn functions_may_reference_globals() {
     assert_eq!("Global\n", lox_stdout!{
         var x = "Global";
