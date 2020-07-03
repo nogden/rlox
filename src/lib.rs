@@ -78,12 +78,6 @@ impl<'s> fmt::Display for LoxError<'s> {
     }
 }
 
-impl<'s> From<error::ParseError<'s>> for LoxError<'s> {
-    fn from(error: error::ParseError<'s>) -> Self {
-        Self::ParseErrors(vec![error])
-    }
-}
-
 impl<'s> From<Vec<error::ParseError<'s>>> for LoxError<'s> {
     fn from(errors: Vec<error::ParseError<'s>>) -> Self {
         Self::ParseErrors(errors)

@@ -1,6 +1,6 @@
 use crate::{
     parser::{Ast, ExprIndex, StmtIndex},
-    token::{Token},
+    token::Token,
     error::ParseError,
 };
 
@@ -10,18 +10,25 @@ pub type ReferenceTable = HashMap<ExprIndex, usize>;
 
 pub fn resolve_references<'s>(
     ast: &Ast<'s>
-) -> Result<ReferenceTable, ParseError<'s>> {
+) -> Result<ReferenceTable, Vec<ParseError<'s>>> {
     let mut resolver = Resolver {
         scopes: Vec::new(),
         resolved: ReferenceTable::new(),
         scope_type: ScopeType::Global,
     };
 
+    let mut errors = Vec::new();
     for statement in ast.top_level_statements() {
-        resolver.resolve_statement(*statement, ast)?;
+        if let Err(error) = resolver.resolve_statement(*statement, ast) {
+            errors.push(error)
+        }
     }
 
-    Ok(resolver.resolved)
+    if errors.is_empty() {
+        Ok(resolver.resolved)
+    } else {
+        Err(errors)
+    }
 }
 
 struct Resolver<'s> {
