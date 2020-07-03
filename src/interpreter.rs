@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::{
     token::{Token, TokenType},
     parser::{Ast, Expression::*, Statement::*, StmtIndex, ExprIndex},
+    resolver::ReferenceTable,
 };
 
 pub struct Interpreter<'io> {
@@ -21,7 +22,7 @@ pub enum Value {
     Number(f64),
     String(String),
     Boolean(bool),
-    Function(Vec<String>, StmtIndex, Option<EnvIndex>),
+    Function(Vec<String>, Vec<StmtIndex>, Option<EnvIndex>),
     NativeFunction(NativeFnIndex),
 }
 
@@ -105,10 +106,12 @@ impl<'io> Interpreter<'io> {
         self.globals.insert(name.as_ref().to_owned(), Value::native_fn(index));
     }
 
-    pub fn evaluate<'s>(&mut self, ast: &Ast<'s>) -> EvalResult<'s> {
+    pub fn evaluate<'s>(
+        &mut self, ast: &Ast<'s>, refs: &ReferenceTable
+    ) -> EvalResult<'s> {
         let mut last_value = None;
         for statement in ast.top_level_statements() {
-            last_value = self.eval_statement(*statement, ast)?;
+            last_value = self.eval_statement(*statement, ast, refs)?;
         }
 
          Ok(last_value)
@@ -139,17 +142,26 @@ impl<'io> Interpreter<'io> {
         }
     }
 
-    fn resolve(&self, identifier: &str) -> Option<Value> {
-        let mut stack_frame = self.stack;
-        while let Some(index) = stack_frame {
-            let environment = &self.environments[index.0];
-            if let Some(value) = environment.locals.get(identifier) {
-                return Some(value.clone())
-            }
-            stack_frame = environment.parent;
-        }
+    fn resolve(&self, identifier: &str, depth: Option<&usize>) -> Option<Value> {
+        const SMALL_STACK: &str = "Stack smaller than ReferenceTable expected";
 
-        self.globals.get(identifier).cloned()
+        if let Some(hops_count) = depth {
+            let stack_level = self.stack.expect(SMALL_STACK);
+            let mut stack_frame = &self.environments[stack_level.0];
+
+            for _ in 0..*hops_count {
+                let parent_level = stack_frame.parent.expect(SMALL_STACK);
+                stack_frame = &self.environments[parent_level.0];
+            }
+
+            if let Some(value) = stack_frame.locals.get(identifier) {
+                Some(value.clone())
+            } else {
+                None
+            }
+        } else {
+            self.globals.get(identifier).cloned()
+        }
     }
 
     fn assign(&mut self, identifier: &str, new_value: Value) -> bool {
@@ -183,43 +195,44 @@ impl<'io> Interpreter<'io> {
     }
 
     fn eval_statement<'s>(
-        &mut self, statement: StmtIndex, ast: &Ast<'s>
+        &mut self, statement: StmtIndex, ast: &Ast<'s>, refs: &ReferenceTable
     ) -> EvalResult<'s> {
         use Value::*;
 
         match ast.statement(statement) {
-            Expression(expr) => self.eval_expression(*expr, ast).map(|v| Some(v)),
+            Expression(expr) => self.eval_expression(*expr, ast, refs)
+                .map(|v| Some(v)),
 
             Fun(name, parameters, body) => {
                 let params = parameters.iter()
                     .map(|t| t.lexeme.to_owned())
                     .collect();
-                let function = Function(params, *body, self.stack);
+                let function = Function(params, body.clone(), self.stack);
                 self.define(name.lexeme, function);
 
                 Ok(None)
             },
 
             If(condition, then_block, optional_else_block) => {
-                if self.eval_expression(*condition, ast)?.is_truthy() {
-                    self.eval_statement(*then_block, ast)?;
+                if self.eval_expression(*condition, ast, refs)?.is_truthy() {
+                    self.eval_statement(*then_block, ast, refs)?;
                 } else if let Some(else_block) = optional_else_block {
-                    self.eval_statement(*else_block, ast)?;
+                    self.eval_statement(*else_block, ast, refs)?;
                 }
 
                 Ok(None)
             },
 
             While(condition, body) => {
-                while self.eval_expression(*condition, ast)?.is_truthy() {
-                    self.eval_statement(*body, ast)?;
+                while self.eval_expression(*condition, ast, refs)?.is_truthy() {
+                    self.eval_statement(*body, ast, refs)?;
                 }
 
                 Ok(None)
             }
 
             Print(expr) => {
-                match self.eval_expression(*expr, ast)? {
+                match self.eval_expression(*expr, ast, refs)? {
                     String(s) => writeln!(self.stdout, "{}", s),
                     result    => writeln!(self.stdout, "{}", result)
                 }.expect("Failed to write to stdout");
@@ -229,7 +242,7 @@ impl<'io> Interpreter<'io> {
 
             Return(_token, optional_expression) => {
                 let return_value = if let Some(expr) = optional_expression {
-                    Some(self.eval_expression(*expr, ast)?)
+                    Some(self.eval_expression(*expr, ast, refs)?)
                 } else {
                     None
                 };
@@ -241,7 +254,7 @@ impl<'io> Interpreter<'io> {
 
             Var(identifier, optional_initialiser) => {
                 let value = if let Some(initialiser) = optional_initialiser {
-                    self.eval_expression(*initialiser, ast)?
+                    self.eval_expression(*initialiser, ast, refs)?
                 } else {
                     Nil
                 };
@@ -252,9 +265,7 @@ impl<'io> Interpreter<'io> {
 
             Block(statements) => {
                 self.push_scope();
-                for statement in statements {
-                    self.eval_statement(*statement, ast)?;
-                }
+                self.eval_block(statements, ast, refs)?;
                 let _ = self.pop_scope();
 
                 Ok(None)
@@ -263,7 +274,7 @@ impl<'io> Interpreter<'io> {
     }
 
     fn eval_expression<'s>(
-        &mut self, expression: ExprIndex, ast: &Ast<'s>
+        &mut self, expression: ExprIndex, ast: &Ast<'s>, refs: &ReferenceTable
     ) -> ExprResult<'s> {
         use Value::*;
         use TokenType as TT;
@@ -280,10 +291,10 @@ impl<'io> Interpreter<'io> {
                 )
             },
 
-            Grouping(expr) => self.eval_expression(*expr, ast),
+            Grouping(expr) => self.eval_expression(*expr, ast, refs),
 
             Unary(token, rhs) => {
-                let value = self.eval_expression(*rhs, ast)?;
+                let value = self.eval_expression(*rhs, ast, refs)?;
 
                 match token.token_type {
                     TT::Minus => negate(&value, token),
@@ -293,8 +304,8 @@ impl<'io> Interpreter<'io> {
             },
 
             Binary(lhs, token, rhs) => {
-                let left  = self.eval_expression(*lhs, ast)?;
-                let right = self.eval_expression(*rhs, ast)?;
+                let left  = self.eval_expression(*lhs, ast, refs)?;
+                let right = self.eval_expression(*rhs, ast, refs)?;
 
                 match token.token_type {
                     TT::Greater      => greater(&left, &right, token),
@@ -312,7 +323,7 @@ impl<'io> Interpreter<'io> {
             },
 
             Logical(lhs, token, rhs) => {
-                let left = self.eval_expression(*lhs, ast)?;
+                let left = self.eval_expression(*lhs, ast, refs)?;
 
                 match token.token_type {
                     TT::And => if left.is_falsey() { return Ok(left) },
@@ -320,14 +331,15 @@ impl<'io> Interpreter<'io> {
                     _ => unreachable!("Logical operator other than (and | or)")
                 }
 
-                self.eval_expression(*rhs, ast)
+                self.eval_expression(*rhs, ast, refs)
             },
 
-            Variable(identifier) => self.resolve(identifier.lexeme)
+            Variable(identifier) => self
+                .resolve(identifier.lexeme, refs.get(&expression))
                 .ok_or(RuntimeError::UnresolvedIdentifier(*identifier)),
 
             Assign(variable, expr) => {
-                let value = self.eval_expression(*expr, ast)?;
+                let value = self.eval_expression(*expr, ast, refs)?;
                 if self.assign(variable.lexeme, value.clone()) {
                     Ok(value)
                 } else {
@@ -336,7 +348,7 @@ impl<'io> Interpreter<'io> {
             },
 
             Call(callee, token, args) => {
-                match self.eval_expression(*callee, ast)? {
+                match self.eval_expression(*callee, ast, refs)? {
                     // body is always a block
                     Function(params, body, closure) => {
                         if args.len() != params.len() {
@@ -347,15 +359,16 @@ impl<'io> Interpreter<'io> {
                             })
                         }
 
-                        let arg_param_pairs = args.iter().zip(params.iter());
-                        for (arg, parameter) in arg_param_pairs {
-                            let argument = self.eval_expression(*arg, ast)?;
-                            self.define(parameter, argument);
-                        }
-
                         let stack = self.swap_stack(closure);
                         self.push_scope();
-                        let return_value = self.eval_statement(body, ast);
+
+                        let arg_param_pairs = args.iter().zip(params.iter());
+                        for (arg, parameter) in arg_param_pairs {
+                            let argument = self.eval_expression(*arg, ast, refs)?;
+                            self.define(parameter, argument);
+                        }
+                        let return_value = self.eval_block(&body, ast, refs);
+
                         self.pop_scope();
                         self.swap_stack(stack);
 
@@ -371,7 +384,7 @@ impl<'io> Interpreter<'io> {
 
                     NativeFunction(function) => {
                         let arguments = args.iter()
-                            .map(|arg| self.eval_expression(*arg, ast))
+                            .map(|arg| self.eval_expression(*arg, ast, refs))
                             .collect::<Result<Vec<Value>, _>>()?;
 
                         self.call_native_fn(function, &arguments).map_err(|e| {
@@ -403,6 +416,17 @@ impl<'io> Interpreter<'io> {
                 }
             }
         }
+    }
+
+    fn eval_block<'s>(
+        &mut self, body: &Vec<StmtIndex>, ast: &Ast<'s>, refs: &ReferenceTable
+    ) -> EvalResult<'s> {
+        let mut last_value = None;
+        for statement in body {
+            last_value = self.eval_statement(*statement, ast, refs)?
+        }
+
+        Ok(last_value)
     }
 }
 

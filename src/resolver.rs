@@ -40,7 +40,7 @@ impl Resolver {
             Fun(name, parameters, body) => {
                 self.declare(name.lexeme);
                 self.define(name.lexeme);
-                self.resolve_fn(parameters, *body, ast)?;
+                self.resolve_fn(parameters, body, ast)?;
             },
 
             If(condition, then_block, optional_else_block) => {
@@ -135,14 +135,16 @@ impl Resolver {
     }
 
     fn resolve_fn<'s>(
-        &mut self, parameters: &Vec<Token<'s>>, body: StmtIndex, ast: &Ast<'s>
+        &mut self, parameters: &Vec<Token<'s>>, body: &Vec<StmtIndex>, ast: &Ast<'s>
     ) -> Result<(), ParseError<'s>> {
         self.scopes.push(HashMap::new());
         for parameter in parameters.iter() {
             self.declare(parameter.lexeme);
             self.define(parameter.lexeme);
         }
-        self.resolve_statement(body, ast)?;
+        for statement in body {
+            self.resolve_statement(*statement, ast)?;
+        }
         let _ = self.scopes.pop();
         Ok(())
     }

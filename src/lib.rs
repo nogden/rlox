@@ -50,8 +50,8 @@ impl<'io> Lox<'io> {
         use scanner::Scanner;
 
         let ast = parser::parse(source_code.tokens())?;
-        let ref_table = resolver::resolve_references(&ast)?;
-        let value = self.interpreter.evaluate(&ast)?;
+        let reference_table = resolver::resolve_references(&ast)?;
+        let value = self.interpreter.evaluate(&ast, &reference_table)?;
 
         Ok((value, Status::AwaitingInput))
     }

@@ -17,7 +17,7 @@ pub struct Ast<'s> {
 #[derive(Clone, Debug)]
 pub enum Statement<'s> {
     Expression(ExprIndex),
-    Fun(Token<'s>, Vec<Token<'s>>, StmtIndex),
+    Fun(Token<'s>, Vec<Token<'s>>, Vec<StmtIndex>),
     If(ExprIndex, StmtIndex, Option<StmtIndex>),
     While(ExprIndex, StmtIndex),
     Print(ExprIndex),
@@ -253,8 +253,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         };
 
         let opening_brace = self.consume(LeftBrace)?;
-        let body = self.block(opening_brace)?
-            .ok_or(UnexpectedEndOfFile)?;
+        let body = self.block(opening_brace)?;
 
         Ok(Some(self.add_stmt(Statement::Fun(name, parameters, body))))
     }
@@ -290,7 +289,8 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             Some(token @ Token { token_type: LeftBrace, .. }) => {
                 let opening_brace = *token;
                 self.advance();
-                self.block(opening_brace)
+                let block_contents = self.block(opening_brace)?;
+                Ok(Some(self.add_stmt(Statement::Block(block_contents))))
             },
 
             Some(Token { token_type: Eof, .. }) => Ok(None),
@@ -302,12 +302,13 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn if_statement(&mut self) -> StmtResult<'s> {
         let condition = self.expression()?;
         let opening_brace = self.consume(LeftBrace)?;
-        let then_branch = self.block(opening_brace)?
-            .ok_or(UnexpectedEndOfFile)?;
+        let block_contents = self.block(opening_brace)?;
+        let then_branch = self.add_stmt(Statement::Block(block_contents));
 
         let else_branch = if self.match_token(Else)? {
             let opening_brace = self.consume(LeftBrace)?;
-            Some(self.block(opening_brace)?.ok_or(UnexpectedEndOfFile)?)
+            let block_contents = self.block(opening_brace)?;
+            Some(self.add_stmt(Statement::Block(block_contents)))
         } else {
             None
         };
@@ -341,8 +342,8 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         };
 
         let opening_brace = self.consume(LeftBrace)?;
-        let mut body = self.block(opening_brace)?
-            .ok_or(UnexpectedEndOfFile)?;
+        let block_contents = self.block(opening_brace)?;
+        let mut body = self.add_stmt(Statement::Block(block_contents));
 
         // Desugar to a while loop
 
@@ -366,8 +367,8 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn while_statement(&mut self) -> StmtResult<'s> {
         let condition = self.expression()?;
         let opening_brace = self.consume(LeftBrace)?;
-        let body = self.block(opening_brace)?
-            .ok_or(UnexpectedEndOfFile)?;
+        let block_contents = self.block(opening_brace)?;
+        let body = self.add_stmt(Statement::Block(block_contents));
 
         Ok(Some(self.add_stmt(Statement::While(condition, body))))
     }
@@ -391,14 +392,16 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         Ok(Some(self.add_stmt(Statement::Return(keyword, return_value))))
     }
 
-    fn block(&mut self, opening_brace: Token<'s>) -> StmtResult<'s> {
+    fn block(
+        &mut self, opening_brace: Token<'s>
+    ) -> Result<Vec<StmtIndex>, ParseError<'s>> {
         let mut statements = Vec::new();
 
         loop {
             match self.peek()? {
                 Some(Token { token_type: RightBrace, ..}) => {
                     self.advance();
-                    return Ok(Some(self.add_stmt(Statement::Block(statements))))
+                    return Ok(statements)
                 },
                 Some(eof @ Token { token_type: Eof, .. }) => {
                     return Err(UnmatchedDelimiter {
@@ -687,7 +690,9 @@ impl<'s> fmt::Display for Ast<'s> {
                         write!(f, " {}", parameter)?;
                     }
                     write!(f, " ] ")?;
-                    print_statement(f, ast.statement(*body), ast)?;
+                    for statement in body {
+                        print_statement(f, ast.statement(*statement), ast)?;
+                    }
                     write!(f, ")")
                 },
                 If(condition, then_block, optional_else_block) => {
