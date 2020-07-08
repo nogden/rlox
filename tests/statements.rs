@@ -241,3 +241,20 @@ fn closure_environments_are_unaffected_by_later_definitions() {
         }
     });
 }
+
+#[test]
+fn classes_print_as_their_type_name() {
+    assert_eq!("<class MyType>\n", lox_stdout!{
+        class MyType {}
+        print MyType;
+    });
+}
+
+#[test]
+fn objects_may_be_instansiated_by_calling_the_type_name_as_a_constructor() {
+    assert_eq!("<object MyType>\n", lox_stdout!{
+        class MyType {}
+        var instance = MyType();
+        print instance;
+    });
+}

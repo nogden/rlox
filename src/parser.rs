@@ -16,6 +16,7 @@ pub struct Ast<'s> {
 
 #[derive(Clone, Debug)]
 pub enum Statement<'s> {
+    Class(Token<'s>, Vec<StmtIndex>),
     Expression(ExprIndex),
     Fun(Token<'s>, Vec<Token<'s>>, Vec<StmtIndex>),
     If(ExprIndex, StmtIndex, Option<StmtIndex>),
@@ -190,7 +191,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         if self.match_token(Var)? {
             self.var_declaration()
         } else if self.match_token(Fun)? {
-            self.function()
+            Ok(Some(self.function()?))
+        } else if self.match_token(Class)? {
+            self.class_declaration()
         } else {
             self.statement()
         }
@@ -218,7 +221,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         Ok(Some(self.add_stmt(Statement::Var(ident, initialiser))))
     }
 
-    fn function(&mut self) -> StmtResult<'s> {
+    fn function(&mut self) -> Result<StmtIndex, ParseError<'s>> {
         let name = match self.peek()? {
             Some(token @ Token { token_type: Identifier(_), .. }) => *token,
             Some(other_token) => return Err(UnexpectedToken {
@@ -255,7 +258,27 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         let opening_brace = self.consume(LeftBrace)?;
         let body = self.block(opening_brace)?;
 
-        Ok(Some(self.add_stmt(Statement::Fun(name, parameters, body))))
+        Ok(self.add_stmt(Statement::Fun(name, parameters, body)))
+    }
+
+    fn class_declaration(&mut self) -> StmtResult<'s> {
+        let name = match self.peek()? {
+            Some(ident @ Token { token_type: Identifier(_), .. }) => *ident,
+            Some(other_token) => return Err(UnexpectedToken {
+                token: *other_token,
+                expected: "class name"
+            }),
+            None => unreachable!("Should have hit EOF (in class_declaration)")
+        };
+        self.advance();
+        self.consume(LeftBrace)?;
+
+        let mut methods = Vec::new();
+        while ! self.match_token(RightBrace)? {
+            methods.push(self.function()?);
+        }
+
+        Ok(Some(self.add_stmt(Statement::Class(name, methods))))
     }
 
     fn statement(&mut self) -> StmtResult<'s> {
@@ -681,6 +704,13 @@ impl<'s> fmt::Display for Ast<'s> {
             use Statement::*;
 
             match statement {
+                Class(name, methods) => {
+                    write!(f, "(defclass {}", name)?;
+                    for method in methods {
+                        print_statement(f, ast.statement(*method), ast)?;
+                    }
+                    write!(f, ")")
+                },
                 Expression(expression) => {
                     print_expression(f, ast.expression(*expression), ast)
                 },

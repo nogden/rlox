@@ -1,4 +1,4 @@
-use std::{io, fmt, collections::HashMap};
+use std::{io, fmt, collections::HashMap, rc::Rc};
 
 use thiserror::Error;
 
@@ -24,15 +24,22 @@ pub enum Value {
     Boolean(bool),
     Function(Vec<String>, Vec<StmtIndex>, Option<EnvIndex>),
     NativeFunction(NativeFnIndex),
+    Class(Rc<Class>),
+    Object(Rc<Class>),
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnvIndex(usize);
 
 pub type NativeFn = fn(&Vec<Value>) -> Result<Value, NativeError>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NativeFnIndex(usize);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EnvIndex(usize);
+#[derive(Clone, Debug, PartialEq)]
+pub struct Class {
+    name: String,
+}
 
 #[derive(Clone, Debug, Error)]
 pub enum RuntimeError<'s> {
@@ -197,9 +204,15 @@ impl<'io> Interpreter<'io> {
     fn eval_statement<'s>(
         &mut self, statement: StmtIndex, ast: &Ast<'s>, refs: &ReferenceTable
     ) -> EvalResult<'s> {
-        use Value::*;
-
         match ast.statement(statement) {
+            Class(name, _methods) => {
+                self.define(name.lexeme, Value::Nil);
+                let class = Rc::new(Class { name: name.lexeme.to_owned() });
+                self.assign(name.lexeme, Value::Class(class));
+
+                Ok(None)
+            },
+
             Expression(expr) => self.eval_expression(*expr, ast, refs)
                 .map(|v| Some(v)),
 
@@ -207,7 +220,7 @@ impl<'io> Interpreter<'io> {
                 let params = parameters.iter()
                     .map(|t| t.lexeme.to_owned())
                     .collect();
-                let function = Function(params, body.clone(), self.stack);
+                let function = Value::Function(params, body.clone(), self.stack);
                 self.define(name.lexeme, function);
 
                 Ok(None)
@@ -233,8 +246,8 @@ impl<'io> Interpreter<'io> {
 
             Print(expr) => {
                 match self.eval_expression(*expr, ast, refs)? {
-                    String(s) => writeln!(self.stdout, "{}", s),
-                    result    => writeln!(self.stdout, "{}", result)
+                    Value::String(s) => writeln!(self.stdout, "{}", s),
+                    result           => writeln!(self.stdout, "{}", result)
                 }.expect("Failed to write to stdout");
 
                 Ok(None)
@@ -256,7 +269,7 @@ impl<'io> Interpreter<'io> {
                 let value = if let Some(initialiser) = optional_initialiser {
                     self.eval_expression(*initialiser, ast, refs)?
                 } else {
-                    Nil
+                    Value::Nil
                 };
                 self.define(identifier.lexeme, value);
 
@@ -406,7 +419,11 @@ impl<'io> Interpreter<'io> {
                                 _ => panic!("Native call returned error")
                             }
                         })
-                    }
+                    },
+
+                    Class(class) => {
+                        Ok(Value::Object(class.clone()))
+                    },
 
                     value => return Err(RuntimeError::TypeMismatch {
                         expected: "callable type",
@@ -451,7 +468,9 @@ impl Value {
             String(_)         => "string",
             Boolean(_)        => "boolean",
             Function(_, _, _) => "function",
-            NativeFunction(_) => "native function"
+            NativeFunction(_) => "native function",
+            Class(_)          => "class",
+            Object(_)         => "object",
         }
     }
 
@@ -471,6 +490,8 @@ impl fmt::Display for Value {
             Boolean(b)        => write!(f, "{}", b),
             Function(_, _, _) => write!(f, "<fn>"),
             NativeFunction(_) => write!(f, "<native fn>"),
+            Class(class)      => write!(f, "<class {}>", &class.name),
+            Object(class)     => write!(f, "<object {}>", &class.name),
         }
     }
 }

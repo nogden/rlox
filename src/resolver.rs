@@ -47,6 +47,11 @@ impl<'s> Resolver<'s> {
         use crate::parser::Statement::*;
 
         match ast.statement(statement) {
+            Class(name, _methods) => {
+                self.declare(name)?;
+                self.define(name);
+            },
+
             Expression(expr) => self.resolve_expression(*expr, ast)?,
 
             Fun(name, parameters, body) => {
