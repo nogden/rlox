@@ -155,7 +155,7 @@ impl<'s> Tokens<'s> {
         if let Some(token_type) = self.keyword(identifier) {
             self.found(token_type, first_char..=last_char)
         } else {
-            self.found(Identifier(identifier), first_char..=last_char)
+            self.found(Identifier, first_char..=last_char)
         }
     }
 

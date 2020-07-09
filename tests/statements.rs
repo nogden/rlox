@@ -258,3 +258,22 @@ fn objects_may_be_instansiated_by_calling_the_type_name_as_a_constructor() {
         print instance;
     });
 }
+
+#[test]
+fn object_fields_may_be_defined_via_dot_notation() {
+    assert_eq!(Some(Number(2.0)), lox!{
+        class MyType {}
+        var instance = MyType();
+        instance.value = 2;
+    });
+}
+
+#[test]
+fn object_fields_may_be_accessed_via_dot_notation() {
+    assert_eq!(Some(Number(2.0)), lox!{
+        class MyType {}
+        var instance = MyType();
+        instance.value = 2;
+        instance.value
+    });
+}

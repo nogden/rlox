@@ -14,6 +14,7 @@ pub struct Interpreter<'io> {
     stack: Option<EnvIndex>,
     stdout: &'io mut dyn io::Write,
     native_functions: Vec<NativeFn>,
+    objects: Vec<HashMap<String, Value>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,7 +26,7 @@ pub enum Value {
     Function(Vec<String>, Vec<StmtIndex>, Option<EnvIndex>),
     NativeFunction(NativeFnIndex),
     Class(Rc<Class>),
-    Object(Rc<Class>),
+    ObjectRef(Rc<Class>, ObjectId),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,6 +36,9 @@ pub type NativeFn = fn(&Vec<Value>) -> Result<Value, NativeError>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NativeFnIndex(usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObjectId(usize);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Class {
@@ -104,6 +108,7 @@ impl<'io> Interpreter<'io> {
             stack: None,
             stdout,
             native_functions: Vec::new(),
+            objects: Vec::new(),
         }
     }
 
@@ -306,6 +311,40 @@ impl<'io> Interpreter<'io> {
 
             Grouping(expr) => self.eval_expression(*expr, ast, refs),
 
+            Access(object, field) => {
+                let object = self.eval_expression(*object, ast, refs)?;
+                if let ObjectRef(_class, object_id) = object {
+                    let fields = &self.objects[object_id.0];
+                    if let Some(value) = fields.get(field.lexeme) {
+                        Ok(value.clone())
+                    } else {
+                        Err(RuntimeError::UnresolvedIdentifier(*field))
+                    }
+                } else {
+                    Err(RuntimeError::TypeMismatch {
+                        expected: "object",
+                        provided: object,
+                        location: *field,
+                    })
+                }
+            },
+
+            Mutate(object, field, value) => {
+                let object = self.eval_expression(*object, ast, refs)?;
+                if let ObjectRef(_class, object_id) = object {
+                    let new_value = self.eval_expression(*value, ast, refs)?;
+                    let fields = &mut self.objects[object_id.0];
+                    fields.insert(field.lexeme.to_owned(), new_value.clone());
+                    Ok(new_value)
+                } else {
+                    Err(RuntimeError::TypeMismatch {
+                        expected: "object",
+                        provided: object,
+                        location: *field,
+                    })
+                }
+            }
+
             Unary(token, rhs) => {
                 let value = self.eval_expression(*rhs, ast, refs)?;
 
@@ -422,7 +461,9 @@ impl<'io> Interpreter<'io> {
                     },
 
                     Class(class) => {
-                        Ok(Value::Object(class.clone()))
+                        let object_id = ObjectId(self.objects.len());
+                        self.objects.push(HashMap::new());
+                        Ok(Value::ObjectRef(class.clone(), object_id))
                     },
 
                     value => return Err(RuntimeError::TypeMismatch {
@@ -470,7 +511,7 @@ impl Value {
             Function(_, _, _) => "function",
             NativeFunction(_) => "native function",
             Class(_)          => "class",
-            Object(_)         => "object",
+            ObjectRef(_, _)   => "object",
         }
     }
 
@@ -484,14 +525,14 @@ impl fmt::Display for Value {
         use Value::*;
 
         match self {
-            Nil               => write!(f, "nil"),
-            Number(n)         => write!(f, "{}", n),
-            String(s)         => write!(f, "\"{}\"", s),
-            Boolean(b)        => write!(f, "{}", b),
-            Function(_, _, _) => write!(f, "<fn>"),
-            NativeFunction(_) => write!(f, "<native fn>"),
-            Class(class)      => write!(f, "<class {}>", &class.name),
-            Object(class)     => write!(f, "<object {}>", &class.name),
+            Nil                 => write!(f, "nil"),
+            Number(n)           => write!(f, "{}", n),
+            String(s)           => write!(f, "\"{}\"", s),
+            Boolean(b)          => write!(f, "{}", b),
+            Function(_, _, _)   => write!(f, "<fn>"),
+            NativeFunction(_)   => write!(f, "<native fn>"),
+            Class(class)        => write!(f, "<class {}>", &class.name),
+            ObjectRef(class, _) => write!(f, "<object {}>", &class.name),
         }
     }
 }

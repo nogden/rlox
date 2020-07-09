@@ -115,6 +115,13 @@ impl<'s> Resolver<'s> {
 
             Grouping(expr) => self.resolve_expression(*expr, ast)?,
 
+            Access(object, _field) => self.resolve_expression(*object, ast)?,
+
+            Mutate(object, _field, value) => {
+                self.resolve_expression(*value, ast)?;
+                self.resolve_expression(*object, ast)?;
+            }
+
             Unary(_token, rhs) => self.resolve_expression(*rhs, ast)?,
 
             Binary(lhs, _token, rhs) => {

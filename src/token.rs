@@ -12,7 +12,7 @@ pub enum TokenType<'s> {
     Less, LessEqual,
 
     // Literals
-    Identifier(&'s str), String(&'s str), Number(f64),
+    Identifier, String(&'s str), Number(f64),
 
     // Keywords
     And, Class, Else, False, Fun, For, If, Nil, Or,
@@ -58,7 +58,7 @@ impl<'s> TokenType<'s> {
             GreaterEqual  => "'>='",
             Less          => "'<'",
             LessEqual     => "'<='",
-            Identifier(_) => "identifier",
+            Identifier    => "identifier",
             String(_)     => "string",
             Number(_)     => "number",
             And           => "'and'",

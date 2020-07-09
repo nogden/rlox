@@ -29,12 +29,14 @@ pub enum Statement<'s> {
 
 #[derive(Clone, Debug)]
 pub enum Expression<'s> {
+    Access(ExprIndex, Token<'s>),
     Assign(Token<'s>, ExprIndex),
     Binary(ExprIndex, Token<'s>, ExprIndex),
     Call(ExprIndex, Token<'s>, Vec<ExprIndex>),
     Grouping(ExprIndex),
     Literal(TokenType<'s>),
     Logical(ExprIndex, Token<'s>, ExprIndex),
+    Mutate(ExprIndex, Token<'s>, ExprIndex),
     Unary(Token<'s>, ExprIndex),
     Variable(Token<'s>),
 }
@@ -200,16 +202,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn var_declaration(&mut self) -> StmtResult<'s> {
-        let ident = match self.peek()? {
-            Some(ident @ Token { token_type: Identifier(_), .. }) => *ident,
-            Some(unexpected_token) => return Err(UnexpectedToken {
-                token: *unexpected_token,
-                expected: "identifier"
-            }),
-            None => unreachable!("Should have hit Eof (in var_declaration)")
-        };
-
-        self.advance();
+        let ident = self.consume(Identifier)?;
         let initialiser = if self.match_token(Equal)? {
             Some(self.expression()?)
         } else {
@@ -222,30 +215,13 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn function(&mut self) -> Result<StmtIndex, ParseError<'s>> {
-        let name = match self.peek()? {
-            Some(token @ Token { token_type: Identifier(_), .. }) => *token,
-            Some(other_token) => return Err(UnexpectedToken {
-                token: *other_token,
-                expected: "function name",
-            }),
-            _ => unreachable!("Should have hit Eof (in function)")
-        };
-        self.advance();
+        let name = self.consume(Identifier)?;
         self.consume(LeftParen)?;
 
         let mut parameters = Vec::new();
         if ! self.match_token(RightParen)? {
             loop {
-                let parameter_name = match self.peek()? {
-                    Some(ident @ Token { token_type: Identifier(_), .. }) =>
-                        *ident,
-                    Some(other_token) => return Err(UnexpectedToken {
-                        token: *other_token,
-                        expected: "parameter name",
-                    }),
-                    _ => unreachable!("Should have hit Eof (in function)")
-                };
-                self.advance();
+                let parameter_name = self.consume(Identifier)?;
                 parameters.push(parameter_name);
 
                 if ! self.match_token(Comma)? {
@@ -262,15 +238,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn class_declaration(&mut self) -> StmtResult<'s> {
-        let name = match self.peek()? {
-            Some(ident @ Token { token_type: Identifier(_), .. }) => *ident,
-            Some(other_token) => return Err(UnexpectedToken {
-                token: *other_token,
-                expected: "class name"
-            }),
-            None => unreachable!("Should have hit EOF (in class_declaration)")
-        };
-        self.advance();
+        let name = self.consume(Identifier)?;
         self.consume(LeftBrace)?;
 
         let mut methods = Vec::new();
@@ -459,11 +427,14 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let assignment = token;
             let value = self.assignment()?;
 
-            if let Variable(ident) = self.expressions[expression.0] {
-                return Ok(self.add_expr(Assign(ident, value)))
+            match self.expressions[expression.0] {
+                Variable(ident) =>
+                    return Ok(self.add_expr(Assign(ident, value))),
+                Access(object, field) =>
+                    return Ok(self.add_expr(Mutate(object, field, value))),
+                _ =>
+                    return Err(InvalidAssignmentTarget(assignment))
             }
-
-            return Err(InvalidAssignmentTarget(assignment))
         }
 
         Ok(expression)
@@ -570,6 +541,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         loop {
             if self.match_token(LeftParen)? {
                 expression = self.finish_call(expression)?;
+            } else if self.match_token(Dot)? {
+                let name = self.consume(Identifier)?;
+                expression = self.add_expr(Access(expression, name));
             } else {
                 break;
             }
@@ -624,7 +598,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 }
             },
 
-            Some(token @ Token { token_type: Identifier(_), .. }) => {
+            Some(token @ Token { token_type: Identifier, .. }) => {
                 let ident = *token;
                 self.advance();
                 Ok(self.add_expr(Variable(ident)))
@@ -648,16 +622,21 @@ impl<'s> fmt::Display for Ast<'s> {
             ast: &Ast
         ) -> fmt::Result {
             match expression {
+                Access(object, field) => {
+                    write!(f, "(get ")?;
+                    print_expression(f, ast.expression(*object), ast)?;
+                    write!(f, " {})", field)
+                }
+                Assign(target, expression) => {
+                    write!(f, "(set {} ", target)?;
+                    print_expression(f, ast.expression(*expression), ast)?;
+                    write!(f, ")")
+                }
                 Binary(left, operator, right) => {
                     write!(f, "({} ", operator)?;
                     print_expression(f, ast.expression(*left), ast)?;
                     write!(f, " ")?;
                     print_expression(f, ast.expression(*right), ast)?;
-                    write!(f, ")")
-                }
-                Unary(token, expression) => {
-                    write!(f, "({} ", token)?;
-                    print_expression(f, ast.expression(*expression), ast)?;
                     write!(f, ")")
                 }
                 Call(callee, _token, arguments) => {
@@ -689,12 +668,19 @@ impl<'s> fmt::Display for Ast<'s> {
                     print_expression(f, ast.expression(*right), ast)?;
                     write!(f, ")")
                 }
-                Variable(token) => write!(f, "{}", token),
-                Assign(target, expression) => {
-                    write!(f, "(set {} ", target)?;
+                Mutate(object, field, value) => {
+                    write!(f, "(set ")?;
+                    print_expression(f, ast.expression(*object), ast)?;
+                    write!(f, " {} ", field)?;
+                    print_expression(f, ast.expression(*value), ast)?;
+                    write!(f, ")")
+                }
+                Unary(token, expression) => {
+                    write!(f, "({} ", token)?;
                     print_expression(f, ast.expression(*expression), ast)?;
                     write!(f, ")")
                 }
+                Variable(token) => write!(f, "{}", token),
             }
         }
 
