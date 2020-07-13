@@ -37,6 +37,7 @@ pub enum Expression<'s> {
     Literal(TokenType<'s>),
     Logical(ExprIndex, Token<'s>, ExprIndex),
     Mutate(ExprIndex, Token<'s>, ExprIndex),
+    SelfRef(Token<'s>),
     Unary(Token<'s>, ExprIndex),
     Variable(Token<'s>),
 }
@@ -598,6 +599,12 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 }
             },
 
+            Some(token @ Token { token_type: This, .. }) => {
+                let keyword = *token;
+                self.advance();
+                Ok(self.add_expr(SelfRef(keyword)))
+            }
+
             Some(token @ Token { token_type: Identifier, .. }) => {
                 let ident = *token;
                 self.advance();
@@ -675,6 +682,7 @@ impl<'s> fmt::Display for Ast<'s> {
                     print_expression(f, ast.expression(*value), ast)?;
                     write!(f, ")")
                 }
+                SelfRef(_keyword) => write!(f, "this"),
                 Unary(token, expression) => {
                     write!(f, "({} ", token)?;
                     print_expression(f, ast.expression(*expression), ast)?;

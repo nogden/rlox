@@ -38,7 +38,7 @@ struct Resolver<'s> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum ScopeType { Global, Function }
+enum ScopeType { Global, Function, Method }
 
 impl<'s> Resolver<'s> {
     fn resolve_statement(
@@ -47,9 +47,23 @@ impl<'s> Resolver<'s> {
         use crate::parser::Statement::*;
 
         match ast.statement(statement) {
-            Class(name, _methods) => {
+            Class(name, methods) => {
                 self.declare(name)?;
                 self.define(name);
+
+                let mut object_scope = HashMap::new();
+                object_scope.insert("this", true);
+                self.scopes.push(object_scope);
+
+                for method in methods {
+                    if let Fun(_name, params, body) = ast.statement(*method) {
+                        self.resolve_fn(params, body, ast, ScopeType::Method)?;
+                    } else {
+                        unreachable!("Class method that isn't a Fun statement")
+                    }
+                }
+
+                self.scopes.pop();
             },
 
             Expression(expr) => self.resolve_expression(*expr, ast)?,
@@ -98,7 +112,7 @@ impl<'s> Resolver<'s> {
                 for stmt in statements {
                     self.resolve_statement(*stmt, ast)?;
                 }
-                let _ = self.scopes.pop();
+                self.scopes.pop();
             }
         }
 
@@ -121,6 +135,8 @@ impl<'s> Resolver<'s> {
                 self.resolve_expression(*value, ast)?;
                 self.resolve_expression(*object, ast)?;
             }
+
+            SelfRef(keyword) => self.resolve(expression, keyword),
 
             Unary(_token, rhs) => self.resolve_expression(*rhs, ast)?,
 
@@ -180,7 +196,7 @@ impl<'s> Resolver<'s> {
         for statement in body {
             self.resolve_statement(*statement, ast)?;
         }
-        let _ = self.scopes.pop();
+        self.scopes.pop();
 
         self.scope_type = enclosing_scope_type;
         Ok(())
@@ -199,14 +215,14 @@ impl<'s> Resolver<'s> {
 
     fn define(&mut self, identifier: &Token<'s>) {
         if let Some(current_scope) = self.scopes.last_mut() {
-            let _ = current_scope.insert(identifier.lexeme, true);
+            current_scope.insert(identifier.lexeme, true);
         }
     }
 
     fn resolve(&mut self, expression: ExprIndex, identifier: &Token<'s>) {
         for (i, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(identifier.lexeme) {
-                let _ = self.resolved.insert(expression, i);
+                self.resolved.insert(expression, i);
                 return
             }
         }

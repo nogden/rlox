@@ -43,6 +43,7 @@ pub struct ObjectId(usize);
 #[derive(Clone, Debug, PartialEq)]
 pub struct Class {
     name: String,
+    methods: HashMap<String, Value>,
 }
 
 #[derive(Clone, Debug, Error)]
@@ -210,9 +211,29 @@ impl<'io> Interpreter<'io> {
         &mut self, statement: StmtIndex, ast: &Ast<'s>, refs: &ReferenceTable
     ) -> EvalResult<'s> {
         match ast.statement(statement) {
-            Class(name, _methods) => {
+            Class(name, method_definitions) => {
                 self.define(name.lexeme, Value::Nil);
-                let class = Rc::new(Class { name: name.lexeme.to_owned() });
+
+                let mut methods = HashMap::new();
+                for method_definition in method_definitions {
+                    let method = ast.statement(*method_definition);
+                    if let Fun(method_name, parameters, body) = method {
+                        let params = parameters.iter()
+                            .map(|t| t.lexeme.to_owned())
+                            .collect();
+                        methods.insert(
+                            method_name.lexeme.to_owned(),
+                            Value::Function(params, body.clone(), self.stack)
+                        );
+                    } else {
+                        unreachable!("Encountered non-function method")
+                    }
+                }
+
+                let class = Rc::new(Class {
+                    name: name.lexeme.to_owned(),
+                    methods,
+                });
                 self.assign(name.lexeme, Value::Class(class));
 
                 Ok(None)
@@ -311,36 +332,51 @@ impl<'io> Interpreter<'io> {
 
             Grouping(expr) => self.eval_expression(*expr, ast, refs),
 
-            Access(object, field) => {
+            Access(object, name) => {
                 let object = self.eval_expression(*object, ast, refs)?;
-                if let ObjectRef(_class, object_id) = object {
+                if let ObjectRef(ref class, object_id) = object {
                     let fields = &self.objects[object_id.0];
-                    if let Some(value) = fields.get(field.lexeme) {
+                    if let Some(value) = fields.get(name.lexeme) {
                         Ok(value.clone())
+                    } else if let Some(Function(
+                        params, args, closure
+                    )) = class.methods.get(name.lexeme) {
+                        let mut locals = HashMap::new();
+                        locals.insert("this".to_owned(), object.clone());
+
+                        let object_scope = EnvIndex(self.environments.len());
+                        self.environments.push(Environment {
+                            locals,
+                            parent: *closure
+                        });
+
+                        Ok(Function(
+                            params.clone(), args.clone(), Some(object_scope)
+                        ))
                     } else {
-                        Err(RuntimeError::UnresolvedIdentifier(*field))
+                        Err(RuntimeError::UnresolvedIdentifier(*name))
                     }
                 } else {
                     Err(RuntimeError::TypeMismatch {
                         expected: "object",
                         provided: object,
-                        location: *field,
+                        location: *name,
                     })
                 }
             },
 
-            Mutate(object, field, value) => {
+            Mutate(object, name, value) => {
                 let object = self.eval_expression(*object, ast, refs)?;
                 if let ObjectRef(_class, object_id) = object {
                     let new_value = self.eval_expression(*value, ast, refs)?;
                     let fields = &mut self.objects[object_id.0];
-                    fields.insert(field.lexeme.to_owned(), new_value.clone());
+                    fields.insert(name.lexeme.to_owned(), new_value.clone());
                     Ok(new_value)
                 } else {
                     Err(RuntimeError::TypeMismatch {
                         expected: "object",
                         provided: object,
-                        location: *field,
+                        location: *name,
                     })
                 }
             }
@@ -398,6 +434,10 @@ impl<'io> Interpreter<'io> {
                     Err(RuntimeError::UnresolvedIdentifier(*variable))
                 }
             },
+
+            SelfRef(keyword) => Ok(self.resolve(
+                keyword.lexeme, refs.get(&expression)
+            ).expect("Unbound 'this' in object scope")),
 
             Call(callee, token, args) => {
                 match self.eval_expression(*callee, ast, refs)? {
