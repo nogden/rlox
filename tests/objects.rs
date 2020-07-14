@@ -89,3 +89,11 @@ fn methods_are_first_class_and_remember_the_object_on_which_they_were_defined() 
         callback();
     });
 }
+
+#[test]
+#[should_panic(expected = "'this' cannot be used outside of an object")]
+fn referencing_this_outside_of_an_object_is_an_error() {
+    lox!{
+        print this;
+    };
+}

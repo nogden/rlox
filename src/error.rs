@@ -44,4 +44,7 @@ pub enum ParseError<'s> {
 
     #[error("(line {}): Attempt to return from global scope", .0.line)]
     TopLevelReturn(Token<'s>),
+
+    #[error("(line {}): 'this' cannot be used outside of an object", .0.line)]
+    SelfRefOutsideObject(Token<'s>),
 }

@@ -15,6 +15,7 @@ pub fn resolve_references<'s>(
         scopes: Vec::new(),
         resolved: ReferenceTable::new(),
         scope_type: ScopeType::Global,
+        class_type: ClassType::None,
     };
 
     let mut errors = Vec::new();
@@ -35,10 +36,14 @@ struct Resolver<'s> {
     scopes: Vec<HashMap<&'s str, bool>>,
     resolved: ReferenceTable,
     scope_type: ScopeType,
+    class_type: ClassType,
 }
 
 #[derive(Clone, Copy, PartialEq)]
 enum ScopeType { Global, Function, Method }
+
+#[derive(Clone, Copy, PartialEq)]
+enum ClassType { None, Class }
 
 impl<'s> Resolver<'s> {
     fn resolve_statement(
@@ -48,6 +53,9 @@ impl<'s> Resolver<'s> {
 
         match ast.statement(statement) {
             Class(name, methods) => {
+                let enclosing_class_type = self.class_type;
+                self.class_type = ClassType::Class;
+
                 self.declare(name)?;
                 self.define(name);
 
@@ -64,6 +72,7 @@ impl<'s> Resolver<'s> {
                 }
 
                 self.scopes.pop();
+                self.class_type = enclosing_class_type;
             },
 
             Expression(expr) => self.resolve_expression(*expr, ast)?,
@@ -136,7 +145,13 @@ impl<'s> Resolver<'s> {
                 self.resolve_expression(*object, ast)?;
             }
 
-            SelfRef(keyword) => self.resolve(expression, keyword),
+            SelfRef(keyword) => {
+                if self.class_type == ClassType::None {
+                    return Err(ParseError::SelfRefOutsideObject(*keyword))
+                }
+
+                self.resolve(expression, keyword);
+            }
 
             Unary(_token, rhs) => self.resolve_expression(*rhs, ast)?,
 
