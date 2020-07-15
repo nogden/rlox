@@ -133,22 +133,6 @@ impl<'io> Interpreter<'io> {
          Ok(last_value)
     }
 
-    fn push_scope(&mut self) {
-        let env_index = self.environments.len();
-        self.environments.push(Environment {  // TODO(nick): Clean up envs that
-            locals: HashMap::new(),           // aren't captured in closures.
-            parent: self.stack
-        });
-        self.stack = Some(EnvIndex(env_index));
-    }
-
-    fn pop_scope(&mut self) -> EnvIndex {
-        let index = self.stack.expect("Attempt to pop empty stack");
-        let leaving_scope = &self.environments[index.0];
-        self.stack = leaving_scope.parent;
-        index
-    }
-
     fn define(&mut self, identifier: &str, value: Value) {
         if let Some(index) = self.stack {
             let active_scope = &mut self.environments[index.0];
@@ -199,6 +183,26 @@ impl<'io> Interpreter<'io> {
         }
     }
 
+    fn push_scope(&mut self) {
+        let (env_id, _env) = self.allocate_environment(self.stack);
+        self.stack = Some(env_id);
+    }
+
+    fn pop_scope(&mut self) -> EnvIndex {
+        let index = self.stack.expect("Attempt to pop empty stack");
+        let leaving_scope = &self.environments[index.0];
+        self.stack = leaving_scope.parent;
+        index
+    }
+
+    fn allocate_environment(
+        &mut self, parent: Option<EnvIndex>
+    ) -> (EnvIndex, &mut Environment) {
+        let env_id = EnvIndex(self.environments.len());
+        self.environments.push(Environment { locals: HashMap::new(), parent });
+        (env_id, &mut self.environments[env_id.0])
+    }
+
     fn swap_stack(&mut self, new_stack: Option<EnvIndex>) -> Option<EnvIndex> {
         std::mem::replace(&mut self.stack, new_stack)
     }
@@ -212,18 +216,9 @@ impl<'io> Interpreter<'io> {
 
     fn bind_this(&mut self, function: &Value, object: &Value) -> Value {
         if let Value::Function(params, body, closure) = function {
-            // let (env_index, env) = self.allocate_environment(*closure);
-            // env.locals.insert("this".to_owned(), object.clone())
-            let mut locals = HashMap::new();
-            locals.insert("this".to_owned(), object.clone());
-
-            let object_scope = EnvIndex(self.environments.len());
-            self.environments.push(Environment {
-                locals,
-                parent: *closure
-            });
-
-            Value::Function(params.clone(), body.clone(), Some(object_scope))
+            let (object_scope_id, env) = self.allocate_environment(*closure);
+            env.locals.insert("this".to_owned(), object.clone());
+            Value::Function(params.clone(), body.clone(), Some(object_scope_id))
         } else {
             // This is enforced by the parser.
             unreachable!("bind_this() called with non-function value")
@@ -425,10 +420,9 @@ impl<'io> Interpreter<'io> {
                     },
 
                     Class(class) => {
-                        // let object_id = self.allocate_object();
+                        // Allocate a new object
                         let object_id = ObjectId(self.objects.len());
                         self.objects.push(HashMap::new());
-
                         let object = Value::ObjectRef(class.clone(), object_id);
 
                         if let Some(constructor) = class.methods.get("init") {
