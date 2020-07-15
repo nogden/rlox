@@ -47,4 +47,7 @@ pub enum ParseError<'s> {
 
     #[error("(line {}): 'this' cannot be used outside of an object", .0.line)]
     SelfRefOutsideObject(Token<'s>),
+
+    #[error("(line {}): Cannot return a value from a constructor", .0.line)]
+    ValueReturnedFromConstructor(Token<'s>),
 }

@@ -40,7 +40,7 @@ struct Resolver<'s> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum ScopeType { Global, Function, Method }
+enum ScopeType { Global, Function, Constructor, Method }
 
 #[derive(Clone, Copy, PartialEq)]
 enum ClassType { None, Class }
@@ -72,8 +72,13 @@ impl<'s> Resolver<'s> {
                 self.scopes.push(object_scope);
 
                 for method in methods {
-                    if let Fun(_name, params, body) = ast.statement(*method) {
-                        self.resolve_fn(params, body, ast, ScopeType::Method)?;
+                    if let Fun(name, params, body) = ast.statement(*method) {
+                        let scope_type = if name.lexeme == "init" {
+                            ScopeType::Constructor
+                        } else {
+                            ScopeType::Method
+                        };
+                        self.resolve_fn(params, body, ast, scope_type)?;
                     } else {
                         unreachable!("Class method that isn't a Fun statement")
                     }
@@ -107,6 +112,11 @@ impl<'s> Resolver<'s> {
                 }
 
                 if let Some(expression) = optional_expression {
+                    if self.scope_type == ScopeType::Constructor {
+                        return Err(
+                            ParseError::ValueReturnedFromConstructor(*token)
+                        )
+                    }
                     self.resolve_expression(*expression, ast)?;
                 }
             }

@@ -158,3 +158,35 @@ fn calling_init_directly_reinitialises_the_object_returning_a_new_reference() {
         reinit_gift.display();
     });
 }
+
+#[test]
+fn explicitly_returning_from_a_constructor_is_allowed() {
+    assert_eq!("Red\n", lox_stdout!{
+        class Gift {
+            init(colour) {
+                this.colour = "Red";
+                return;
+                this.colour = colour;
+            }
+
+            display() {
+                print this.colour;
+            }
+        }
+
+        var gift = Gift("Blue");
+        gift.display();
+    });
+}
+
+#[test]
+#[should_panic(expected = "Cannot return a value from a constructor")]
+fn explicitly_retuning_a_value_in_a_constructor_is_an_error() {
+    lox!{
+        class Gift {
+            init(colour) {
+                return "Nonsense";
+            }
+        }
+    };
+}
