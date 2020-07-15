@@ -52,6 +52,14 @@ impl<'s> Resolver<'s> {
         use crate::parser::Statement::*;
 
         match ast.statement(statement) {
+            Block(statements) => {
+                self.scopes.push(HashMap::new());
+                for stmt in statements {
+                    self.resolve_statement(*stmt, ast)?;
+                }
+                self.scopes.pop();
+            }
+
             Class(name, methods) => {
                 let enclosing_class_type = self.class_type;
                 self.class_type = ClassType::Class;
@@ -73,7 +81,7 @@ impl<'s> Resolver<'s> {
 
                 self.scopes.pop();
                 self.class_type = enclosing_class_type;
-            },
+            }
 
             Expression(expr) => self.resolve_expression(*expr, ast)?,
 
@@ -81,7 +89,7 @@ impl<'s> Resolver<'s> {
                 self.declare(name)?;
                 self.define(name);
                 self.resolve_fn(parameters, body, ast, ScopeType::Function)?;
-            },
+            }
 
             If(condition, then_block, optional_else_block) => {
                 self.resolve_expression(*condition, ast)?;
@@ -89,11 +97,6 @@ impl<'s> Resolver<'s> {
                 if let Some(else_block) = optional_else_block {
                     self.resolve_statement(*else_block, ast)?;
                 }
-            },
-
-            While(condition, body) => {
-                self.resolve_expression(*condition, ast)?;
-                self.resolve_statement(*body, ast)?;
             }
 
             Print(expr) => self.resolve_expression(*expr, ast)?,
@@ -106,7 +109,7 @@ impl<'s> Resolver<'s> {
                 if let Some(expression) = optional_expression {
                     self.resolve_expression(*expression, ast)?;
                 }
-            },
+            }
 
             Var(identifier, optional_initialiser) => {
                 self.declare(identifier)?;
@@ -114,14 +117,11 @@ impl<'s> Resolver<'s> {
                     self.resolve_expression(*initialiser, ast)?;
                 }
                 self.define(identifier);
-            },
+            }
 
-            Block(statements) => {
-                self.scopes.push(HashMap::new());
-                for stmt in statements {
-                    self.resolve_statement(*stmt, ast)?;
-                }
-                self.scopes.pop();
+            While(condition, body) => {
+                self.resolve_expression(*condition, ast)?;
+                self.resolve_statement(*body, ast)?;
             }
         }
 
@@ -134,11 +134,33 @@ impl<'s> Resolver<'s> {
         use crate::parser::Expression::*;
 
         match ast.expression(expression) {
-            Literal(_token_type) => { /* Nothing to resolve */ },
+            Access(object, _field) => self.resolve_expression(*object, ast)?,
+
+            Assign(variable, expr) => {
+                self.resolve_expression(*expr, ast)?;
+                self.resolve(*expr, variable)
+            }
+
+            Binary(lhs, _token, rhs) => {
+                self.resolve_expression(*lhs, ast)?;
+                self.resolve_expression(*rhs, ast)?;
+            }
+
+            Call(callee, _token, args) => {
+                self.resolve_expression(*callee, ast)?;
+                for argument in args.iter() {
+                    self.resolve_expression(*argument, ast)?;
+                }
+            }
 
             Grouping(expr) => self.resolve_expression(*expr, ast)?,
 
-            Access(object, _field) => self.resolve_expression(*object, ast)?,
+            Literal(_token_type) => { /* Nothing to resolve */ },
+
+            Logical(lhs, _token, rhs) => {
+                self.resolve_expression(*lhs, ast)?;
+                self.resolve_expression(*rhs, ast)?;
+            }
 
             Mutate(object, _field, value) => {
                 self.resolve_expression(*value, ast)?;
@@ -155,16 +177,6 @@ impl<'s> Resolver<'s> {
 
             Unary(_token, rhs) => self.resolve_expression(*rhs, ast)?,
 
-            Binary(lhs, _token, rhs) => {
-                self.resolve_expression(*lhs, ast)?;
-                self.resolve_expression(*rhs, ast)?;
-            },
-
-            Logical(lhs, _token, rhs) => {
-                self.resolve_expression(*lhs, ast)?;
-                self.resolve_expression(*rhs, ast)?;
-            },
-
             Variable(identifier) => {
                 if let Some(scope) = self.scopes.last() {
                     if let Some(initialised) = scope.get(identifier.lexeme) {
@@ -175,18 +187,6 @@ impl<'s> Resolver<'s> {
                 }
 
                 self.resolve(expression, identifier);
-            }
-
-            Assign(variable, expr) => {
-                self.resolve_expression(*expr, ast)?;
-                self.resolve(*expr, variable)
-            },
-
-            Call(callee, _token, args) => {
-                self.resolve_expression(*callee, ast)?;
-                for argument in args.iter() {
-                    self.resolve_expression(*argument, ast)?;
-                }
             }
         }
 
@@ -202,8 +202,8 @@ impl<'s> Resolver<'s> {
     ) -> Result<(), ParseError<'s>> {
         let enclosing_scope_type = self.scope_type;
         self.scope_type = fn_type;
-
         self.scopes.push(HashMap::new());
+
         for parameter in parameters.iter() {
             self.declare(parameter)?;
             self.define(parameter);
@@ -211,9 +211,10 @@ impl<'s> Resolver<'s> {
         for statement in body {
             self.resolve_statement(*statement, ast)?;
         }
-        self.scopes.pop();
 
+        self.scopes.pop();
         self.scope_type = enclosing_scope_type;
+
         Ok(())
     }
 

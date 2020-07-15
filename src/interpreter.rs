@@ -19,14 +19,14 @@ pub struct Interpreter<'io> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
-    Nil,
-    Number(f64),
-    String(String),
     Boolean(bool),
+    Class(Rc<Class>),
     Function(Vec<String>, Vec<StmtIndex>, Option<EnvIndex>),
     NativeFunction(NativeFnIndex),
-    Class(Rc<Class>),
+    Nil,
+    Number(f64),
     ObjectRef(Rc<Class>, ObjectId),
+    String(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,11 +48,12 @@ pub struct Class {
 
 #[derive(Clone, Debug, Error)]
 pub enum RuntimeError<'s> {
-    #[error("(line {}): Unary '{operator}' is not applicable to {value}",
-            operator.line)]
-    UnaryOperatorNotApplicable {
-        value: Value,
-        operator: Token<'s>
+    #[error("(line {}): Arity mismatch, expected {} parameters, found {}",
+            location.line, expected, provided)]
+    ArityMismatch {
+        expected: usize,
+        provided: usize,
+        location: Token<'s>
     },
 
     #[error("(line {}): Binary '{operator}' is not appicable to {lhs} \
@@ -63,8 +64,8 @@ pub enum RuntimeError<'s> {
         operator: Token<'s>
     },
 
-    #[error("(line {}): Unresolved identifier '{0}'", .0.line)]
-    UnresolvedIdentifier(Token<'s>),
+    #[error("Unhandled stack unwind")]
+    StackUnwind(Option<Value>),
 
     #[error("(line {}): Type mismatch, expected {}, found {} '{}'",
             location.line, expected, provided.value_type(), provided)]
@@ -74,23 +75,22 @@ pub enum RuntimeError<'s> {
         location: Token<'s>
     },
 
-    #[error("(line {}): Arity mismatch, expected {} parameters, found {}",
-            location.line, expected, provided)]
-    ArityMismatch {
-        expected: usize,
-        provided: usize,
-        location: Token<'s>
+    #[error("(line {}): Unary '{operator}' is not applicable to {value}",
+            operator.line)]
+    UnaryOperatorNotApplicable {
+        value: Value,
+        operator: Token<'s>
     },
 
-    #[error("Unhandled stack unwind")]
-    StackUnwind(Option<Value>),
+    #[error("(line {}): Unresolved identifier '{0}'", .0.line)]
+    UnresolvedIdentifier(Token<'s>),
 }
 
 #[derive(Clone, Debug)]
 pub enum NativeError {
     ArityMismatch(usize),
-    TypeMismatch(&'static str, Value),
     Failed(String),
+    TypeMismatch(&'static str, Value),
 }
 
 struct Environment {
@@ -207,10 +207,38 @@ impl<'io> Interpreter<'io> {
         f(arguments)
     }
 
+    fn bind_this(&mut self, function: &Value, object: &Value) -> Value {
+        if let Value::Function(params, body, closure) = function {
+            // let (env_index, env) = self.allocate_environment(*closure);
+            // env.locals.insert("this".to_owned(), object.clone())
+            let mut locals = HashMap::new();
+            locals.insert("this".to_owned(), object.clone());
+
+            let object_scope = EnvIndex(self.environments.len());
+            self.environments.push(Environment {
+                locals,
+                parent: *closure
+            });
+
+            Value::Function(params.clone(), body.clone(), Some(object_scope))
+        } else {
+            // This is enforced by the parser.
+            unreachable!("bind_this() called with non-function value")
+        }
+    }
+
     fn eval_statement<'s>(
         &mut self, statement: StmtIndex, ast: &Ast<'s>, refs: &ReferenceTable
     ) -> EvalResult<'s> {
         match ast.statement(statement) {
+            Block(statements) => {
+                self.push_scope();
+                self.eval_block(statements, ast, refs)?;
+                let _ = self.pop_scope();
+
+                Ok(None)
+            }
+
             Class(name, method_definitions) => {
                 self.define(name.lexeme, Value::Nil);
 
@@ -237,7 +265,7 @@ impl<'io> Interpreter<'io> {
                 self.assign(name.lexeme, Value::Class(class));
 
                 Ok(None)
-            },
+            }
 
             Expression(expr) => self.eval_expression(*expr, ast, refs)
                 .map(|v| Some(v)),
@@ -250,21 +278,13 @@ impl<'io> Interpreter<'io> {
                 self.define(name.lexeme, function);
 
                 Ok(None)
-            },
+            }
 
             If(condition, then_block, optional_else_block) => {
                 if self.eval_expression(*condition, ast, refs)?.is_truthy() {
                     self.eval_statement(*then_block, ast, refs)?;
                 } else if let Some(else_block) = optional_else_block {
                     self.eval_statement(*else_block, ast, refs)?;
-                }
-
-                Ok(None)
-            },
-
-            While(condition, body) => {
-                while self.eval_expression(*condition, ast, refs)?.is_truthy() {
-                    self.eval_statement(*body, ast, refs)?;
                 }
 
                 Ok(None)
@@ -277,7 +297,7 @@ impl<'io> Interpreter<'io> {
                 }.expect("Failed to write to stdout");
 
                 Ok(None)
-            },
+            }
 
             Return(_token, optional_expression) => {
                 let return_value = if let Some(expr) = optional_expression {
@@ -289,7 +309,7 @@ impl<'io> Interpreter<'io> {
                 // This is a small abuse of the error handling, but it's the exact
                 // unwind semantics that we want and by far the simplest way.
                 Err(RuntimeError::StackUnwind(return_value))
-            },
+            }
 
             Var(identifier, optional_initialiser) => {
                 let value = if let Some(initialiser) = optional_initialiser {
@@ -300,12 +320,12 @@ impl<'io> Interpreter<'io> {
                 self.define(identifier.lexeme, value);
 
                 Ok(None)
-            },
+            }
 
-            Block(statements) => {
-                self.push_scope();
-                self.eval_block(statements, ast, refs)?;
-                let _ = self.pop_scope();
+            While(condition, body) => {
+                while self.eval_expression(*condition, ast, refs)?.is_truthy() {
+                    self.eval_statement(*body, ast, refs)?;
+                }
 
                 Ok(None)
             }
@@ -319,40 +339,16 @@ impl<'io> Interpreter<'io> {
         use TokenType as TT;
 
         match ast.expression(expression) {
-            Literal(token_type) => match *token_type {
-                TT::Number(n)  => Ok(Number(n)),
-                TT::String(s)  => Ok(String(s.to_owned())),
-                TT::True       => Ok(Boolean(true)),
-                TT::False      => Ok(Boolean(false)),
-                TT::Nil        => Ok(Nil),
-                _ => unreachable!(
-                    "Literal other than (number | string | true | false | nil)"
-                )
-            },
-
-            Grouping(expr) => self.eval_expression(*expr, ast, refs),
-
             Access(object, name) => {
                 let object = self.eval_expression(*object, ast, refs)?;
                 if let ObjectRef(ref class, object_id) = object {
                     let fields = &self.objects[object_id.0];
                     if let Some(value) = fields.get(name.lexeme) {
                         Ok(value.clone())
-                    } else if let Some(Function(
-                        params, args, closure
-                    )) = class.methods.get(name.lexeme) {
-                        let mut locals = HashMap::new();
-                        locals.insert("this".to_owned(), object.clone());
-
-                        let object_scope = EnvIndex(self.environments.len());
-                        self.environments.push(Environment {
-                            locals,
-                            parent: *closure
-                        });
-
-                        Ok(Function(
-                            params.clone(), args.clone(), Some(object_scope)
-                        ))
+                    } else if let Some(
+                        function @ Function(_, _, _)
+                    ) = class.methods.get(name.lexeme) {
+                        Ok(self.bind_this(function, &object))
                     } else {
                         Err(RuntimeError::UnresolvedIdentifier(*name))
                     }
@@ -363,33 +359,16 @@ impl<'io> Interpreter<'io> {
                         location: *name,
                     })
                 }
-            },
-
-            Mutate(object, name, value) => {
-                let object = self.eval_expression(*object, ast, refs)?;
-                if let ObjectRef(_class, object_id) = object {
-                    let new_value = self.eval_expression(*value, ast, refs)?;
-                    let fields = &mut self.objects[object_id.0];
-                    fields.insert(name.lexeme.to_owned(), new_value.clone());
-                    Ok(new_value)
-                } else {
-                    Err(RuntimeError::TypeMismatch {
-                        expected: "object",
-                        provided: object,
-                        location: *name,
-                    })
-                }
             }
 
-            Unary(token, rhs) => {
-                let value = self.eval_expression(*rhs, ast, refs)?;
-
-                match token.token_type {
-                    TT::Minus => negate(&value, token),
-                    TT::Bang  => Ok(Boolean(!value.is_truthy())),
-                    _ => unreachable!("Unary operation other than (!|-)")
+            Assign(variable, expr) => {
+                let value = self.eval_expression(*expr, ast, refs)?;
+                if self.assign(variable.lexeme, value.clone()) {
+                    Ok(value)
+                } else {
+                    Err(RuntimeError::UnresolvedIdentifier(*variable))
                 }
-            },
+            }
 
             Binary(lhs, token, rhs) => {
                 let left  = self.eval_expression(*lhs, ast, refs)?;
@@ -408,70 +387,12 @@ impl<'io> Interpreter<'io> {
                     TT::Plus         => plus(&left, &right, token),
                     _ => unreachable!("Binary operator other than (+|-|*|/)")
                 }
-            },
-
-            Logical(lhs, token, rhs) => {
-                let left = self.eval_expression(*lhs, ast, refs)?;
-
-                match token.token_type {
-                    TT::And => if left.is_falsey() { return Ok(left) },
-                    TT::Or  => if left.is_truthy() { return Ok(left) },
-                    _ => unreachable!("Logical operator other than (and | or)")
-                }
-
-                self.eval_expression(*rhs, ast, refs)
-            },
-
-            Variable(identifier) => self
-                .resolve(identifier.lexeme, refs.get(&expression))
-                .ok_or(RuntimeError::UnresolvedIdentifier(*identifier)),
-
-            Assign(variable, expr) => {
-                let value = self.eval_expression(*expr, ast, refs)?;
-                if self.assign(variable.lexeme, value.clone()) {
-                    Ok(value)
-                } else {
-                    Err(RuntimeError::UnresolvedIdentifier(*variable))
-                }
-            },
-
-            SelfRef(keyword) => Ok(self.resolve(
-                keyword.lexeme, refs.get(&expression)
-            ).expect("Unbound 'this' in object scope")),
+            }
 
             Call(callee, token, args) => {
                 match self.eval_expression(*callee, ast, refs)? {
-                    // body is always a block
-                    Function(params, body, closure) => {
-                        if args.len() != params.len() {
-                            return Err(RuntimeError::ArityMismatch {
-                                expected: params.len(),
-                                provided: args.len(),
-                                location: *token
-                            })
-                        }
-
-                        let stack = self.swap_stack(closure);
-                        self.push_scope();
-
-                        let arg_param_pairs = args.iter().zip(params.iter());
-                        for (arg, parameter) in arg_param_pairs {
-                            let argument = self.eval_expression(*arg, ast, refs)?;
-                            self.define(parameter, argument);
-                        }
-                        let return_value = self.eval_block(&body, ast, refs);
-
-                        self.pop_scope();
-                        self.swap_stack(stack);
-
-                        match return_value {
-                            Ok(value)
-                                => Ok(value.unwrap_or(Nil)),
-                            Err(RuntimeError::StackUnwind(value))
-                                => Ok(value.unwrap_or(Nil)),
-                            Err(a_real_error)
-                                => Err(a_real_error),
-                        }
+                    function @ Function(_, _, _) => {
+                        self.eval_fn(token, &function, args, ast, refs)
                     },
 
                     NativeFunction(function) => {
@@ -501,9 +422,18 @@ impl<'io> Interpreter<'io> {
                     },
 
                     Class(class) => {
+                        // let object_id = self.allocate_object();
                         let object_id = ObjectId(self.objects.len());
                         self.objects.push(HashMap::new());
-                        Ok(Value::ObjectRef(class.clone(), object_id))
+
+                        let object = Value::ObjectRef(class.clone(), object_id);
+
+                        if let Some(constructor) = class.methods.get("init") {
+                            let method = self.bind_this(constructor, &object);
+                            self.eval_fn(token, &method, args, ast, refs)?;
+                        }
+
+                        Ok(object)
                     },
 
                     value => return Err(RuntimeError::TypeMismatch {
@@ -513,6 +443,108 @@ impl<'io> Interpreter<'io> {
                     })
                 }
             }
+
+            Grouping(expr) => self.eval_expression(*expr, ast, refs),
+
+            Literal(token_type) => match *token_type {
+                TT::Number(n)  => Ok(Number(n)),
+                TT::String(s)  => Ok(String(s.to_owned())),
+                TT::True       => Ok(Boolean(true)),
+                TT::False      => Ok(Boolean(false)),
+                TT::Nil        => Ok(Nil),
+                _ => unreachable!(
+                    "Literal other than (number | string | true | false | nil)"
+                )
+            }
+
+            Logical(lhs, token, rhs) => {
+                let left = self.eval_expression(*lhs, ast, refs)?;
+
+                match token.token_type {
+                    TT::And => if left.is_falsey() { return Ok(left) },
+                    TT::Or  => if left.is_truthy() { return Ok(left) },
+                    _ => unreachable!("Logical operator other than (and | or)")
+                }
+
+                self.eval_expression(*rhs, ast, refs)
+            }
+
+            Mutate(object, name, value) => {
+                let object = self.eval_expression(*object, ast, refs)?;
+                if let ObjectRef(_class, object_id) = object {
+                    let new_value = self.eval_expression(*value, ast, refs)?;
+                    let fields = &mut self.objects[object_id.0];
+                    fields.insert(name.lexeme.to_owned(), new_value.clone());
+                    Ok(new_value)
+                } else {
+                    Err(RuntimeError::TypeMismatch {
+                        expected: "object",
+                        provided: object,
+                        location: *name,
+                    })
+                }
+            }
+
+            SelfRef(keyword) => Ok(self.resolve(
+                keyword.lexeme, refs.get(&expression)
+            ).expect("Unbound 'this' in object scope")),
+
+            Unary(token, rhs) => {
+                let value = self.eval_expression(*rhs, ast, refs)?;
+
+                match token.token_type {
+                    TT::Minus => negate(&value, token),
+                    TT::Bang  => Ok(Boolean(!value.is_truthy())),
+                    _ => unreachable!("Unary operation other than (!|-)")
+                }
+            }
+
+            Variable(identifier) => self
+                .resolve(identifier.lexeme, refs.get(&expression))
+                .ok_or(RuntimeError::UnresolvedIdentifier(*identifier)),
+        }
+    }
+
+    fn eval_fn<'s>(
+        &mut self,
+        token: &Token<'s>,
+        function: &Value,
+        args: &Vec<ExprIndex>,
+        ast: &Ast<'s>,
+        refs: &ReferenceTable
+    ) -> ExprResult<'s> {
+        if let Value::Function(params, body, closure) = function {
+            if args.len() != params.len() {
+                return Err(RuntimeError::ArityMismatch {
+                    expected: params.len(),
+                    provided: args.len(),
+                    location: *token
+                })
+            }
+
+            let stack = self.swap_stack(*closure);
+            self.push_scope();
+
+            let arg_param_pairs = args.iter().zip(params.iter());
+            for (arg, parameter) in arg_param_pairs {
+                let argument = self.eval_expression(*arg, ast, refs)?;
+                self.define(parameter, argument);
+            }
+            let return_value = self.eval_block(&body, ast, refs);
+
+            self.pop_scope();
+            self.swap_stack(stack);
+
+            match return_value {
+                Ok(value)
+                    => Ok(value.unwrap_or(Value::Nil)),
+                Err(RuntimeError::StackUnwind(value))
+                    => Ok(value.unwrap_or(Value::Nil)),
+                Err(a_real_error)
+                    => Err(a_real_error),
+            }
+        } else {
+            panic!("Called eval_fn on non-function value")
         }
     }
 
@@ -544,14 +576,14 @@ impl Value {
         use Value::*;
 
         match self {
-            Nil               => "nil",
-            Number(_)         => "number",
-            String(_)         => "string",
             Boolean(_)        => "boolean",
+            Class(_)          => "class",
             Function(_, _, _) => "function",
             NativeFunction(_) => "native function",
-            Class(_)          => "class",
+            Nil               => "nil",
+            Number(_)         => "number",
             ObjectRef(_, _)   => "object",
+            String(_)         => "string",
         }
     }
 
@@ -565,14 +597,14 @@ impl fmt::Display for Value {
         use Value::*;
 
         match self {
-            Nil                 => write!(f, "nil"),
-            Number(n)           => write!(f, "{}", n),
-            String(s)           => write!(f, "\"{}\"", s),
             Boolean(b)          => write!(f, "{}", b),
+            Class(class)        => write!(f, "<class {}>", &class.name),
             Function(_, _, _)   => write!(f, "<fn>"),
             NativeFunction(_)   => write!(f, "<native fn>"),
-            Class(class)        => write!(f, "<class {}>", &class.name),
+            Nil                 => write!(f, "nil"),
+            Number(n)           => write!(f, "{}", n),
             ObjectRef(class, _) => write!(f, "<object {}>", &class.name),
+            String(s)           => write!(f, "\"{}\"", s,)
         }
     }
 }
