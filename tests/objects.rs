@@ -97,3 +97,39 @@ fn referencing_this_outside_of_an_object_is_an_error() {
         print this;
     };
 }
+
+#[test]
+fn object_constructors_are_called_on_creation_if_defined() {
+    assert_eq!("Red socks\n", lox_stdout!{
+        class Gift {
+            init() {
+                this.colour = "Red";
+            }
+
+            display() {
+                print this.colour + " socks";
+            }
+        }
+
+        var gift = Gift();
+        gift.display();
+    });
+}
+
+#[test]
+fn class_creation_arity_matches_constructor_arity() {
+    assert_eq!("Red socks\n", lox_stdout!{
+        class Gift {
+            init(colour) {
+                this.colour = colour;
+            }
+
+            display() {
+                print this.colour + " socks";
+            }
+        }
+
+        var gift = Gift("Red");
+        gift.display();
+    });
+}
