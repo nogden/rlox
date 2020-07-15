@@ -21,11 +21,18 @@ pub struct Interpreter<'io> {
 pub enum Value {
     Boolean(bool),
     Class(Rc<Class>),
-    Function(Vec<String>, Vec<StmtIndex>, Option<EnvIndex>),
+    Function {
+        parameters: Vec<String>,
+        body: Vec<StmtIndex>,
+        environment: Option<EnvIndex>
+    },
     NativeFunction(NativeFnIndex),
     Nil,
     Number(f64),
-    ObjectRef(Rc<Class>, ObjectId),
+    ObjectRef {
+        class: Rc<Class>,
+        instance_id: ObjectId,
+    },
     String(String),
 }
 
@@ -214,11 +221,17 @@ impl<'io> Interpreter<'io> {
         f(arguments)
     }
 
+    // We bind the this keyword to an object by wrapping the methods
+    // scope in a new scope that defines "this" as a reference to the object.
     fn bind_this(&mut self, function: &Value, object: &Value) -> Value {
-        if let Value::Function(params, body, closure) = function {
-            let (object_scope_id, env) = self.allocate_environment(*closure);
+        if let Value::Function { parameters, body, environment } = function {
+            let (object_env_id, env) = self.allocate_environment(*environment);
             env.locals.insert("this".to_owned(), object.clone());
-            Value::Function(params.clone(), body.clone(), Some(object_scope_id))
+            Value::Function {
+                parameters: parameters.clone(),
+                body: body.clone(),
+                environment: Some(object_env_id)
+            }
         } else {
             // This is enforced by the parser.
             unreachable!("bind_this() called with non-function value")
@@ -243,13 +256,17 @@ impl<'io> Interpreter<'io> {
                 let mut methods = HashMap::new();
                 for method_definition in method_definitions {
                     let method = ast.statement(*method_definition);
-                    if let Fun(method_name, parameters, body) = method {
-                        let params = parameters.iter()
+                    if let Fun(method_name, params, body) = method {
+                        let parameters = params.iter()
                             .map(|t| t.lexeme.to_owned())
                             .collect();
                         methods.insert(
                             method_name.lexeme.to_owned(),
-                            Value::Function(params, body.clone(), self.stack)
+                            Value::Function {
+                                parameters,
+                                body: body.clone(),
+                                environment: self.stack
+                            }
                         );
                     } else {
                         unreachable!("Encountered non-function method")
@@ -268,12 +285,15 @@ impl<'io> Interpreter<'io> {
             Expression(expr) => self.eval_expression(*expr, ast, refs)
                 .map(|v| Some(v)),
 
-            Fun(name, parameters, body) => {
-                let params = parameters.iter()
+            Fun(name, params, body) => {
+                let parameters = params.iter()
                     .map(|t| t.lexeme.to_owned())
                     .collect();
-                let function = Value::Function(params, body.clone(), self.stack);
-                self.define(name.lexeme, function);
+                self.define(name.lexeme, Value::Function {
+                    parameters,
+                    body: body.clone(),
+                    environment: self.stack
+                });
 
                 Ok(None)
             }
@@ -339,12 +359,12 @@ impl<'io> Interpreter<'io> {
         match ast.expression(expression) {
             Access(object, name) => {
                 let object = self.eval_expression(*object, ast, refs)?;
-                if let ObjectRef(ref class, object_id) = object {
-                    let fields = &self.objects[object_id.0];
+                if let ObjectRef { ref class, instance_id } = object {
+                    let fields = &self.objects[instance_id.0];
                     if let Some(value) = fields.get(name.lexeme) {
                         Ok(value.clone())
                     } else if let Some(
-                        function @ Function(_, _, _)
+                        function @ Function { .. }
                     ) = class.methods.get(name.lexeme) {
                         Ok(self.bind_this(function, &object))
                     } else {
@@ -389,7 +409,7 @@ impl<'io> Interpreter<'io> {
 
             Call(callee, token, args) => {
                 match self.eval_expression(*callee, ast, refs)? {
-                    function @ Function(_, _, _) => {
+                    function @ Function { .. } => {
                         self.eval_fn(token, &function, args, ast, refs)
                     },
 
@@ -421,9 +441,12 @@ impl<'io> Interpreter<'io> {
 
                     Class(class) => {
                         // Allocate a new object
-                        let object_id = ObjectId(self.objects.len());
+                        let instance_id = ObjectId(self.objects.len());
                         self.objects.push(HashMap::new());
-                        let object = Value::ObjectRef(class.clone(), object_id);
+                        let object = Value::ObjectRef {
+                            class: class.clone(),
+                            instance_id
+                        };
 
                         if let Some(constructor) = class.methods.get("init") {
                             let method = self.bind_this(constructor, &object);
@@ -468,9 +491,9 @@ impl<'io> Interpreter<'io> {
 
             Mutate(object, name, value) => {
                 let object = self.eval_expression(*object, ast, refs)?;
-                if let ObjectRef(_class, object_id) = object {
+                if let ObjectRef { instance_id, .. } = object {
                     let new_value = self.eval_expression(*value, ast, refs)?;
-                    let fields = &mut self.objects[object_id.0];
+                    let fields = &mut self.objects[instance_id.0];
                     fields.insert(name.lexeme.to_owned(), new_value.clone());
                     Ok(new_value)
                 } else {
@@ -510,19 +533,19 @@ impl<'io> Interpreter<'io> {
         ast: &Ast<'s>,
         refs: &ReferenceTable
     ) -> ExprResult<'s> {
-        if let Value::Function(params, body, closure) = function {
-            if args.len() != params.len() {
+        if let Value::Function { parameters, body, environment } = function {
+            if args.len() != parameters.len() {
                 return Err(RuntimeError::ArityMismatch {
-                    expected: params.len(),
+                    expected: parameters.len(),
                     provided: args.len(),
                     location: *token
                 })
             }
 
-            let stack = self.swap_stack(*closure);
+            let stack = self.swap_stack(*environment);
             self.push_scope();
 
-            let arg_param_pairs = args.iter().zip(params.iter());
+            let arg_param_pairs = args.iter().zip(parameters.iter());
             for (arg, parameter) in arg_param_pairs {
                 let argument = self.eval_expression(*arg, ast, refs)?;
                 self.define(parameter, argument);
@@ -575,11 +598,11 @@ impl Value {
         match self {
             Boolean(_)        => "boolean",
             Class(_)          => "class",
-            Function(_, _, _) => "function",
+            Function { .. }   => "function",
             NativeFunction(_) => "native function",
             Nil               => "nil",
             Number(_)         => "number",
-            ObjectRef(_, _)   => "object",
+            ObjectRef { .. }  => "object",
             String(_)         => "string",
         }
     }
@@ -590,14 +613,14 @@ impl fmt::Display for Value {
         use Value::*;
 
         match self {
-            Boolean(b)          => write!(f, "{}", b),
-            Class(class)        => write!(f, "<class {}>", &class.name),
-            Function(_, _, _)   => write!(f, "<fn>"),
-            NativeFunction(_)   => write!(f, "<native fn>"),
-            Nil                 => write!(f, "nil"),
-            Number(n)           => write!(f, "{}", n),
-            ObjectRef(class, _) => write!(f, "<object {}>", &class.name),
-            String(s)           => write!(f, "\"{}\"", s,)
+            Boolean(b)              => write!(f, "{}", b),
+            Class(class)            => write!(f, "<class {}>", &class.name),
+            Function { .. }         => write!(f, "<fn>"),
+            NativeFunction(_)       => write!(f, "<native fn>"),
+            Nil                     => write!(f, "nil"),
+            Number(n)               => write!(f, "{}", n),
+            ObjectRef { class, .. } => write!(f, "<object {}>", &class.name),
+            String(s)               => write!(f, "\"{}\"", s,)
         }
     }
 }
