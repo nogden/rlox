@@ -625,43 +625,43 @@ impl<'s> fmt::Display for Ast<'s> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fn print_expression<'s>(
             f: &mut fmt::Formatter,
-            expression: &Expression<'s>,
+            expression: ExprIndex,
             ast: &Ast
         ) -> fmt::Result {
-            match expression {
+            match ast.expression(expression) {
                 Access(object, field) => {
                     write!(f, "(get ")?;
-                    print_expression(f, ast.expression(*object), ast)?;
+                    print_expression(f, *object, ast)?;
                     write!(f, " {})", field)
                 }
 
                 Assign(target, expression) => {
                     write!(f, "(set {} ", target)?;
-                    print_expression(f, ast.expression(*expression), ast)?;
+                    print_expression(f, *expression, ast)?;
                     write!(f, ")")
                 }
 
                 Binary(left, operator, right) => {
                     write!(f, "({} ", operator)?;
-                    print_expression(f, ast.expression(*left), ast)?;
+                    print_expression(f, *left, ast)?;
                     write!(f, " ")?;
-                    print_expression(f, ast.expression(*right), ast)?;
+                    print_expression(f, *right, ast)?;
                     write!(f, ")")
                 }
 
                 Call(callee, _token, arguments) => {
                     write!(f, "(")?;
-                    print_expression(f, ast.expression(*callee), ast)?;
+                    print_expression(f, *callee, ast)?;
                     for argument in arguments {
                         write!(f, " ")?;
-                        print_expression(f, ast.expression(*argument), ast)?;
+                        print_expression(f, *argument, ast)?;
                     }
                     write!(f, ")")
                 }
 
                 Grouping(expression) => {
                     write!(f, "(group ")?;
-                    print_expression(f, ast.expression(*expression), ast)?;
+                    print_expression(f, *expression, ast)?;
                     write!(f, ")")
                 }
 
@@ -676,17 +676,17 @@ impl<'s> fmt::Display for Ast<'s> {
 
                 Logical(left, operator, right) => {
                     write!(f, "({} ", operator)?;
-                    print_expression(f, ast.expression(*left), ast)?;
+                    print_expression(f, *left, ast)?;
                     write!(f, " ")?;
-                    print_expression(f, ast.expression(*right), ast)?;
+                    print_expression(f, *right, ast)?;
                     write!(f, ")")
                 }
 
                 Mutate(object, field, value) => {
                     write!(f, "(set ")?;
-                    print_expression(f, ast.expression(*object), ast)?;
+                    print_expression(f, *object, ast)?;
                     write!(f, " {} ", field)?;
-                    print_expression(f, ast.expression(*value), ast)?;
+                    print_expression(f, *value, ast)?;
                     write!(f, ")")
                 }
 
@@ -694,7 +694,7 @@ impl<'s> fmt::Display for Ast<'s> {
 
                 Unary(token, expression) => {
                     write!(f, "({} ", token)?;
-                    print_expression(f, ast.expression(*expression), ast)?;
+                    print_expression(f, *expression, ast)?;
                     write!(f, ")")
                 }
 
@@ -703,15 +703,15 @@ impl<'s> fmt::Display for Ast<'s> {
         }
 
         fn print_statement(
-            f: &mut fmt::Formatter, statement: &Statement, ast: &Ast
+            f: &mut fmt::Formatter, statement: StmtIndex, ast: &Ast
         ) -> fmt::Result {
             use Statement::*;
 
-            match statement {
+            match ast.statement(statement) {
                 Block(statements) => {
                     writeln!(f, "(scope ")?;
                     for statement in statements {
-                        print_statement(f, ast.statement(*statement), ast)?;
+                        print_statement(f, *statement, ast)?;
                     }
                     write!(f, ")")
                 }
@@ -719,13 +719,13 @@ impl<'s> fmt::Display for Ast<'s> {
                 Class(name, methods) => {
                     write!(f, "(defclass {}", name)?;
                     for method in methods {
-                        print_statement(f, ast.statement(*method), ast)?;
+                        print_statement(f, *method, ast)?;
                     }
                     write!(f, ")")
                 }
 
                 Expression(expression) => {
-                    print_expression(f, ast.expression(*expression), ast)
+                    print_expression(f, *expression, ast)
                 }
 
                 Fun(name, parameters, body) => {
@@ -735,33 +735,33 @@ impl<'s> fmt::Display for Ast<'s> {
                     }
                     write!(f, " ] ")?;
                     for statement in body {
-                        print_statement(f, ast.statement(*statement), ast)?;
+                        print_statement(f, *statement, ast)?;
                     }
                     write!(f, ")")
                 }
 
                 If(condition, then_block, optional_else_block) => {
                     write!(f, "(if ")?;
-                    print_expression(f, ast.expression(*condition), ast)?;
+                    print_expression(f, *condition, ast)?;
                     write!(f, " ")?;
-                    print_statement(f, ast.statement(*then_block), ast)?;
+                    print_statement(f, *then_block, ast)?;
                     if let Some(else_block) = optional_else_block {
                         write!(f, " ")?;
-                        print_statement(f, ast.statement(*else_block), ast)?;
+                        print_statement(f, *else_block, ast)?;
                     }
                     write!(f, ")")
                 }
 
                 Print(expression) => {
                     write!(f, "(print ")?;
-                    print_expression(f, ast.expression(*expression), ast)?;
+                    print_expression(f, *expression, ast)?;
                     write!(f, ")")
                 }
 
                 Return(_location, expression) => {
                     write!(f, "(return")?;
                     if let Some(expression) = expression {
-                        print_expression(f, ast.expression(*expression), ast)?;
+                        print_expression(f, *expression, ast)?;
                     }
                     write!(f, ")")
                 }
@@ -770,23 +770,23 @@ impl<'s> fmt::Display for Ast<'s> {
                     write!(f, "(def {}", ident)?;
                     if let Some(expr) = initialiser {
                         write!(f, " ")?;
-                        print_expression(f, ast.expression(*expr), ast)?;
+                        print_expression(f, *expr, ast)?;
                     }
                     write!(f, ")")
                 }
 
                 While(condition, body) => {
                     write!(f, "(while ")?;
-                    print_expression(f, ast.expression(*condition), ast)?;
+                    print_expression(f, *condition, ast)?;
                     write!(f, " ")?;
-                    print_statement(f, ast.statement(*body), ast)?;
+                    print_statement(f, *body, ast)?;
                     write!(f, ")")
                 }
             }
         }
 
         for statement in self.top_level_statements() {
-            print_statement(f, self.statement(*statement), self)?;
+            print_statement(f, *statement, self)?;
         }
 
         Ok(())
