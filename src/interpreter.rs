@@ -31,7 +31,7 @@ pub enum Value {
     Number(f64),
     ObjectRef {
         class: Rc<Class>,
-        instance_id: ObjectId,
+        instance: ObjectId,
     },
     String(String),
 }
@@ -359,8 +359,8 @@ impl<'io> Interpreter<'io> {
         match ast.expression(expression) {
             Access(object, name) => {
                 let object = self.eval_expression(*object, ast, refs)?;
-                if let ObjectRef { ref class, instance_id } = object {
-                    let fields = &self.objects[instance_id.0];
+                if let ObjectRef { ref class, instance } = object {
+                    let fields = &self.objects[instance.0];
                     if let Some(value) = fields.get(name.lexeme) {
                         Ok(value.clone())
                     } else if let Some(
@@ -441,11 +441,11 @@ impl<'io> Interpreter<'io> {
 
                     Class(class) => {
                         // Allocate a new object
-                        let instance_id = ObjectId(self.objects.len());
+                        let instance = ObjectId(self.objects.len());
                         self.objects.push(HashMap::new());
                         let object = Value::ObjectRef {
                             class: class.clone(),
-                            instance_id
+                            instance
                         };
 
                         if let Some(constructor) = class.methods.get("init") {
@@ -491,9 +491,9 @@ impl<'io> Interpreter<'io> {
 
             Mutate(object, name, value) => {
                 let object = self.eval_expression(*object, ast, refs)?;
-                if let ObjectRef { instance_id, .. } = object {
+                if let ObjectRef { instance, .. } = object {
                     let new_value = self.eval_expression(*value, ast, refs)?;
-                    let fields = &mut self.objects[instance_id.0];
+                    let fields = &mut self.objects[instance.0];
                     fields.insert(name.lexeme.to_owned(), new_value.clone());
                     Ok(new_value)
                 } else {
