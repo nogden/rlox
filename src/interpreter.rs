@@ -24,7 +24,8 @@ pub enum Value {
     Function {
         parameters: Vec<String>,
         body: Vec<StmtIndex>,
-        environment: Option<EnvIndex>
+        environment: Option<EnvIndex>,
+        is_constructor: bool,
     },
     NativeFunction(NativeFnIndex),
     Nil,
@@ -224,13 +225,16 @@ impl<'io> Interpreter<'io> {
     // We bind the this keyword to an object by wrapping the methods
     // scope in a new scope that defines "this" as a reference to the object.
     fn bind_this(&mut self, function: &Value, object: &Value) -> Value {
-        if let Value::Function { parameters, body, environment } = function {
+        if let Value::Function {
+            parameters, body, environment, is_constructor
+        } = function {
             let (object_env_id, env) = self.allocate_environment(*environment);
             env.locals.insert("this".to_owned(), object.clone());
             Value::Function {
                 parameters: parameters.clone(),
                 body: body.clone(),
-                environment: Some(object_env_id)
+                environment: Some(object_env_id),
+                is_constructor: *is_constructor
             }
         } else {
             // This is enforced by the parser.
@@ -260,12 +264,14 @@ impl<'io> Interpreter<'io> {
                         let parameters = params.iter()
                             .map(|t| t.lexeme.to_owned())
                             .collect();
+                        let is_constructor = method_name.lexeme == "init";
                         methods.insert(
                             method_name.lexeme.to_owned(),
                             Value::Function {
                                 parameters,
                                 body: body.clone(),
-                                environment: self.stack
+                                environment: self.stack,
+                                is_constructor
                             }
                         );
                     } else {
@@ -292,7 +298,8 @@ impl<'io> Interpreter<'io> {
                 self.define(name.lexeme, Value::Function {
                     parameters,
                     body: body.clone(),
-                    environment: self.stack
+                    environment: self.stack,
+                    is_constructor: false
                 });
 
                 Ok(None)
@@ -533,7 +540,9 @@ impl<'io> Interpreter<'io> {
         ast: &Ast<'s>,
         refs: &ReferenceTable
     ) -> ExprResult<'s> {
-        if let Value::Function { parameters, body, environment } = function {
+        if let Value::Function {
+            parameters, body, environment, is_constructor
+        } = function {
             if args.len() != parameters.len() {
                 return Err(RuntimeError::ArityMismatch {
                     expected: parameters.len(),
@@ -555,13 +564,22 @@ impl<'io> Interpreter<'io> {
             self.pop_scope();
             self.swap_stack(stack);
 
-            match return_value {
-                Ok(value)
-                    => Ok(value.unwrap_or(Value::Nil)),
-                Err(RuntimeError::StackUnwind(value))
-                    => Ok(value.unwrap_or(Value::Nil)),
-                Err(a_real_error)
-                    => Err(a_real_error),
+            if *is_constructor {
+                let env_index = environment
+                    .expect("missing object scope when calling constructor");
+                let env = &self.environments[env_index.0];
+                let object_ref = env.locals.get("this")
+                    .expect("'this' not in scope when calling constructor");
+                Ok(object_ref.clone())
+            } else {
+                match return_value {
+                    Ok(value)
+                        => Ok(value.unwrap_or(Value::Nil)),
+                    Err(RuntimeError::StackUnwind(value))
+                        => Ok(value.unwrap_or(Value::Nil)),
+                    Err(a_real_error)
+                        => Err(a_real_error),
+                }
             }
         } else {
             panic!("Called eval_fn on non-function value")

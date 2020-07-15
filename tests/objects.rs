@@ -133,3 +133,28 @@ fn class_creation_arity_matches_constructor_arity() {
         gift.display();
     });
 }
+
+#[test]
+fn calling_init_directly_reinitialises_the_object_returning_a_new_reference() {
+    assert_eq!("Red socks\nBlue socks\nGreen socks\nGreen socks\n", lox_stdout!{
+        class Gift {
+            init(colour) {
+                this.colour = colour;
+            }
+
+            display() {
+                print this.colour + " socks";
+            }
+        }
+
+        var gift = Gift("Red");
+        gift.display();
+
+        gift.colour = "Blue";
+        gift.display();
+
+        var reinit_gift = gift.init("Green");
+        gift.display();
+        reinit_gift.display();
+    });
+}
