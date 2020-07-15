@@ -114,9 +114,12 @@ impl<'io> Interpreter<'io> {
     }
 
     pub fn expose<T: AsRef<str>>(&mut self, name: T, function: NativeFn) {
-        let index = self.native_functions.len();
+        let index = NativeFnIndex(self.native_functions.len());
         self.native_functions.push(function);
-        self.globals.insert(name.as_ref().to_owned(), Value::native_fn(index));
+        self.globals.insert(
+            name.as_ref().to_owned(),
+            Value::NativeFunction(index)
+        );
     }
 
     pub fn evaluate<'s>(
@@ -585,10 +588,6 @@ impl Value {
             ObjectRef(_, _)   => "object",
             String(_)         => "string",
         }
-    }
-
-    pub fn native_fn(index: usize) -> Value {
-        Value::NativeFunction(NativeFnIndex(index))
     }
 }
 
