@@ -1,5 +1,5 @@
 use crate::{
-    parser::{Ast, ExprIndex, StmtIndex},
+    parser::{Ast, ExprIndex, StmtIndex, Expression::*},
     token::Token,
     error::ParseError,
 };
@@ -60,12 +60,21 @@ impl<'s> Resolver<'s> {
                 self.scopes.pop();
             }
 
-            Class(name, methods) => {
+            Class(name, optional_super_class, methods) => {
                 let enclosing_class_type = self.class_type;
                 self.class_type = ClassType::Class;
 
                 self.declare(name)?;
                 self.define(name);
+
+                if let Some(super_class) = optional_super_class {
+                    if let Variable(super_name) = ast.expression(*super_class) {
+                        if super_name.lexeme == name.lexeme {
+                            return Err(ParseError::InheritanceCycle(*super_name))
+                        }
+                    }
+                    self.resolve_expression(*super_class, ast)?;
+                }
 
                 let mut object_scope = HashMap::new();
                 object_scope.insert("this", true);

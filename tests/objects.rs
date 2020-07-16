@@ -190,3 +190,69 @@ fn explicitly_retuning_a_value_in_a_constructor_is_an_error() {
         }
     };
 }
+
+#[test]
+fn a_class_may_inherit_from_another() {
+    assert_eq!("", lox_stdout!{
+        class Parent {}
+
+        class Child < Parent {}
+    });
+}
+
+#[test]
+#[should_panic(expected = "A class cannot inherit from itself")]
+fn a_class_may_not_inherit_from_itself() {
+    lox!{
+        class Cycle < Cycle {}
+    };
+}
+
+#[test]
+#[should_panic(expected= "Type mismatch, expected class")]
+fn a_class_may_not_inherit_from_any_other_value() {
+    lox!{
+        var FakeClass = "I'm not really a class";
+
+        class MyType < FakeClass {}
+    };
+}
+
+#[test]
+fn methods_are_inherited_from_super_classes() {
+    assert_eq!("Parent\n", lox_stdout!{
+        class Parent {
+            method() {
+                print "Parent";
+            }
+        }
+
+        class Child < Parent {}
+
+        var instance = Child();
+        instance.method();
+    });
+}
+
+#[test]
+fn methods_in_the_sub_class_override_those_of_the_super_class() {
+    assert_eq!("Child\n", lox_stdout!{
+        class Parent {
+            method() {
+                print "Parent";
+            }
+        }
+
+        class Child < Parent {
+            method() {
+                print "Child";
+            }
+        }
+
+        var instance = Child();
+        instance.method();
+    });
+}
+
+    });
+}

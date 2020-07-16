@@ -17,7 +17,7 @@ pub struct Ast<'s> {
 #[derive(Clone, Debug)]
 pub enum Statement<'s> {
     Block(Vec<StmtIndex>),
-    Class(Token<'s>, Vec<StmtIndex>),
+    Class(Token<'s>, Option<ExprIndex>, Vec<StmtIndex>),
     Expression(ExprIndex),
     Fun(Token<'s>, Vec<Token<'s>>, Vec<StmtIndex>),
     If(ExprIndex, StmtIndex, Option<StmtIndex>),
@@ -240,6 +240,12 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
     fn class_declaration(&mut self) -> StmtResult<'s> {
         let name = self.consume(Identifier)?;
+        let super_class = if self.match_token(Less)? {
+            let super_class_name = self.consume(Identifier)?;
+            Some(self.add_expr(Variable(super_class_name)))
+        } else {
+            None
+        };
         self.consume(LeftBrace)?;
 
         let mut methods = Vec::new();
@@ -247,7 +253,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             methods.push(self.function()?);
         }
 
-        Ok(Some(self.add_stmt(Statement::Class(name, methods))))
+        Ok(Some(self.add_stmt(Statement::Class(name, super_class, methods))))
     }
 
     fn statement(&mut self) -> StmtResult<'s> {
@@ -716,7 +722,7 @@ impl<'s> fmt::Display for Ast<'s> {
                     write!(f, ")")
                 }
 
-                Class(name, methods) => {
+                Class(name, _super_class, methods) => {
                     write!(f, "(defclass {}", name)?;
                     for method in methods {
                         print_statement(f, *method, ast)?;

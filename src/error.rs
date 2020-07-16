@@ -4,6 +4,9 @@ use crate::token::Token;
 
 #[derive(Clone, Debug, Error)]
 pub enum ParseError<'s> {
+    #[error("(line {}): A class cannot inherit from itself", .0.line)]
+    InheritanceCycle(Token<'s>),
+
     #[error("(line {line}): Unexpected character '{character}'")]
     UnexpectedCharacter {
         character: &'s str,

@@ -52,6 +52,7 @@ pub struct ObjectId(usize);
 pub struct Class {
     name: String,
     methods: HashMap<String, Value>,
+    super_class: Option<Rc<Class>>,
 }
 
 #[derive(Clone, Debug, Error)]
@@ -254,9 +255,21 @@ impl<'io> Interpreter<'io> {
                 Ok(None)
             }
 
-            Class(name, method_definitions) => {
-                self.define(name.lexeme, Value::Nil);
+            Class(name, optional_super_class, method_definitions) => {
+                let super_class = if let Some(class) = optional_super_class {
+                    match self.eval_expression(*class, ast, refs)? {
+                        Value::Class(class) => Some(class.clone()),
+                        other_value => return Err(RuntimeError::TypeMismatch {
+                            expected: "class",
+                            provided: other_value.clone(),
+                            location: *name
+                        })
+                    }
+                } else {
+                    None
+                };
 
+                self.define(name.lexeme, Value::Nil);
                 let mut methods = HashMap::new();
                 for method_definition in method_definitions {
                     let method = ast.statement(*method_definition);
@@ -279,11 +292,11 @@ impl<'io> Interpreter<'io> {
                     }
                 }
 
-                let class = Rc::new(Class {
+                self.assign(name.lexeme, Value::Class(Rc::new(Class {
                     name: name.lexeme.to_owned(),
                     methods,
-                });
-                self.assign(name.lexeme, Value::Class(class));
+                    super_class,
+                })));
 
                 Ok(None)
             }
@@ -372,7 +385,7 @@ impl<'io> Interpreter<'io> {
                         Ok(value.clone())
                     } else if let Some(
                         function @ Function { .. }
-                    ) = class.methods.get(name.lexeme) {
+                    ) = class.method(name.lexeme) {
                         Ok(self.bind_this(function, &object))
                     } else {
                         Err(RuntimeError::UnresolvedIdentifier(*name))
@@ -640,6 +653,18 @@ impl fmt::Display for Value {
             ObjectRef { class, .. } => write!(f, "<object {}>", &class.name),
             String(s)               => write!(f, "\"{}\"", s,)
         }
+    }
+}
+
+impl Class {
+    fn method(&self, name: &str) -> Option<&Value> {
+        self.methods.get(name).or_else(|| {
+            if let Some(super_class) = &self.super_class {
+                super_class.method(name)
+            } else {
+                None
+            }
+        })
     }
 }
 
