@@ -270,6 +270,12 @@ impl<'io> Interpreter<'io> {
                 };
 
                 self.define(name.lexeme, Value::Nil);
+
+                if let Some(super_class) = &super_class {
+                    self.push_scope();
+                    self.define("super", Value::Class(super_class.clone()));
+                }
+
                 let mut methods = HashMap::new();
                 for method_definition in method_definitions {
                     let method = ast.statement(*method_definition);
@@ -277,19 +283,22 @@ impl<'io> Interpreter<'io> {
                         let parameters = params.iter()
                             .map(|t| t.lexeme.to_owned())
                             .collect();
-                        let is_constructor = method_name.lexeme == "init";
                         methods.insert(
                             method_name.lexeme.to_owned(),
                             Value::Function {
                                 parameters,
                                 body: body.clone(),
                                 environment: self.stack,
-                                is_constructor
+                                is_constructor: method_name.lexeme == "init"
                             }
                         );
                     } else {
                         unreachable!("Encountered non-function method")
                     }
+                }
+
+                if super_class.is_some() {
+                    self.pop_scope();
                 }
 
                 self.assign(name.lexeme, Value::Class(Rc::new(Class {
@@ -528,6 +537,29 @@ impl<'io> Interpreter<'io> {
             SelfRef(keyword) => Ok(self.resolve(
                 keyword.lexeme, refs.get(&expression)
             ).expect("Unbound 'this' in object scope")),
+
+            SuperRef(_keyword, method) => {
+                let super_depth = refs.get(&expression)
+                    .expect("missing depth in reference table for 'super'");
+                let super_class = self.resolve("super", Some(&super_depth))
+                    .expect("missing binding for 'super'");
+                // 'this' is always bound one environment closer than 'super'
+                let this_depth = super_depth - 1;
+                let instance = self.resolve("this", Some(&this_depth))
+                    .expect("missing binding for 'this'");
+                let unbound_method = if let Class(class) = super_class {
+                    class.method(method.lexeme).cloned()
+                } else {
+                    unreachable!("non-class value as super class")
+                };
+
+                if let Some(method) = &unbound_method {
+                    let bound_method = self.bind_this(method, &instance);
+                    Ok(bound_method)
+                } else {
+                    Err(RuntimeError::UnresolvedIdentifier(*method))
+                }
+            }
 
             Unary(token, rhs) => {
                 let value = self.eval_expression(*rhs, ast, refs)?;

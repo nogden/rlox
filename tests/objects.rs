@@ -254,5 +254,48 @@ fn methods_in_the_sub_class_override_those_of_the_super_class() {
     });
 }
 
+#[test]
+fn super_class_methods_may_be_invoked_from_a_sub_class_with_super() {
+    assert_eq!("Parent\n and Child\n", lox_stdout!{
+        class Parent {
+            method() {
+                print "Parent";
+            }
+        }
+
+        class Child < Parent {
+            method() {
+                super.method();
+                print " and Child";
+            }
+        }
+
+        var instance = Child();
+        instance.method();
+    });
+}
+
+#[test]
+fn super_lookup_starts_on_the_class_in_which_super_is_used() {
+    assert_eq!("A method\n", lox_stdout!{
+        class A {
+            method() {
+                print "A method";
+            }
+        }
+
+        class B < A {
+            method() {
+                print "B method";
+            }
+
+            test() {
+                super.method();
+            }
+        }
+
+        class C < B {}
+
+        C().test();
     });
 }

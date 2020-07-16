@@ -38,6 +38,7 @@ pub enum Expression<'s> {
     Logical(ExprIndex, Token<'s>, ExprIndex),
     Mutate(ExprIndex, Token<'s>, ExprIndex),
     SelfRef(Token<'s>),
+    SuperRef(Token<'s>, Token<'s>),
     Unary(Token<'s>, ExprIndex),
     Variable(Token<'s>),
 }
@@ -588,7 +589,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 let literal = token.token_type;
                 self.advance();
                 Ok(self.add_expr(Literal(literal)))
-            },
+            }
 
             Some(token @ Token { token_type: LeftParen, .. }) => {
                 let opening_delimiter = *token;
@@ -603,12 +604,21 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 } else {
                     Ok(self.add_expr(Grouping(expr)))
                 }
-            },
+            }
 
             Some(token @ Token { token_type: This, .. }) => {
                 let keyword = *token;
                 self.advance();
                 Ok(self.add_expr(SelfRef(keyword)))
+            }
+
+            Some(token @ Token { token_type: Super, .. }) => {
+                let keyword = *token;
+                self.advance();
+                self.consume(Dot)?;
+                let method = self.consume(Identifier)?;
+                Ok(self.add_expr(SuperRef(keyword, method)))
+
             }
 
             Some(token @ Token { token_type: Identifier, .. }) => {
@@ -697,6 +707,8 @@ impl<'s> fmt::Display for Ast<'s> {
                 }
 
                 SelfRef(_keyword) => write!(f, "this"),
+
+                SuperRef(_keyword, _method) => write!(f, "super"),
 
                 Unary(token, expression) => {
                     write!(f, "({} ", token)?;

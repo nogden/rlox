@@ -74,6 +74,10 @@ impl<'s> Resolver<'s> {
                         }
                     }
                     self.resolve_expression(*super_class, ast)?;
+
+                    let mut super_class_scope = HashMap::new();
+                    super_class_scope.insert("super", true);
+                    self.scopes.push(super_class_scope);
                 }
 
                 let mut object_scope = HashMap::new();
@@ -94,6 +98,9 @@ impl<'s> Resolver<'s> {
                 }
 
                 self.scopes.pop();
+                if optional_super_class.is_some() {
+                    self.scopes.pop();
+                }
                 self.class_type = enclosing_class_type;
             }
 
@@ -193,6 +200,8 @@ impl<'s> Resolver<'s> {
 
                 self.resolve(expression, keyword);
             }
+
+            SuperRef(keyword, _method) => self.resolve(expression, keyword),
 
             Unary(_token, rhs) => self.resolve_expression(*rhs, ast)?,
 
