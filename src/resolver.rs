@@ -43,7 +43,7 @@ struct Resolver<'s> {
 enum ScopeType { Global, Function, Constructor, Method }
 
 #[derive(Clone, Copy, PartialEq)]
-enum ClassType { None, Class }
+enum ClassType { None, Class, SubClass }
 
 impl<'s> Resolver<'s> {
     fn resolve_statement(
@@ -73,6 +73,7 @@ impl<'s> Resolver<'s> {
                             return Err(ParseError::InheritanceCycle(*super_name))
                         }
                     }
+                    self.class_type = ClassType::SubClass;
                     self.resolve_expression(*super_class, ast)?;
 
                     let mut super_class_scope = HashMap::new();
@@ -201,7 +202,12 @@ impl<'s> Resolver<'s> {
                 self.resolve(expression, keyword);
             }
 
-            SuperRef(keyword, _method) => self.resolve(expression, keyword),
+            SuperRef(keyword, _method) => {
+                if self.class_type != ClassType::SubClass {
+                    return Err(ParseError::SuperOutsideSubClass(*keyword))
+                }
+                self.resolve(expression, keyword);
+            }
 
             Unary(_token, rhs) => self.resolve_expression(*rhs, ast)?,
 

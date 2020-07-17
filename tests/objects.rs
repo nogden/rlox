@@ -299,3 +299,26 @@ fn super_lookup_starts_on_the_class_in_which_super_is_used() {
         C().test();
     });
 }
+
+#[test]
+#[should_panic(expected = "'super' can only be used within a subclass")]
+fn using_super_in_a_class_that_has_no_super_class_is_an_error() {
+    lox!{
+        class Solo {
+            method() {
+                super.method();
+            }
+        }
+
+        var solo = Solo();
+        solo.method();
+    };
+}
+
+#[test]
+#[should_panic(expected = "'super' can only be used within a subclass")]
+fn using_super_outside_of_a_class_is_an_error() {
+    lox!{
+        print super.method();
+    };
+}
