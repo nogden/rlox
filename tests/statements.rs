@@ -241,3 +241,32 @@ fn closure_environments_are_unaffected_by_later_definitions() {
         }
     });
 }
+
+#[test]
+fn can_handle_recursion() {
+    assert_eq!("Bottom\n", lox_stdout!{
+        fun recur(i) {
+            if i == 0 {
+                print "Bottom";
+            } else {
+                recur(i - 1);
+            }
+        }
+
+        recur(5);
+    });
+}
+
+#[test]
+fn can_run_fibanacci() {
+    assert_eq!(Some(Number(6765.0)), lox!{
+        fun fib(n) {
+            if n <= 1 {
+                return n;
+            }
+            return fib(n - 2) + fib(n - 1);
+        }
+
+        fib(20)
+    });
+}

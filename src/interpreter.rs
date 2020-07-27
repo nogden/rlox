@@ -102,6 +102,7 @@ pub enum NativeError {
     TypeMismatch(&'static str, Value),
 }
 
+#[derive(Debug)]
 struct Environment {
     locals: HashMap<String, Value>,
     parent: Option<EnvIndex>,
@@ -155,11 +156,11 @@ impl<'io> Interpreter<'io> {
         const SMALL_STACK: &str = "Stack smaller than ReferenceTable expected";
 
         if let Some(hops_count) = depth {
-            let stack_level = self.stack.expect(SMALL_STACK);
+            let stack_level = &self.stack.expect(SMALL_STACK);
             let mut stack_frame = &self.environments[stack_level.0];
 
             for _ in 0..*hops_count {
-                let parent_level = stack_frame.parent.expect(SMALL_STACK);
+                let parent_level = &stack_frame.parent.expect(SMALL_STACK);
                 stack_frame = &self.environments[parent_level.0];
             }
 
@@ -596,14 +597,20 @@ impl<'io> Interpreter<'io> {
                 })
             }
 
-            let stack = self.swap_stack(*environment);
-            self.push_scope();
-
+            let mut bindings = Vec::new();
             let arg_param_pairs = args.iter().zip(parameters.iter());
             for (arg, parameter) in arg_param_pairs {
                 let argument = self.eval_expression(*arg, ast, refs)?;
+                bindings.push((parameter, argument));
+            }
+
+            let stack = self.swap_stack(*environment);  // Restore closure
+            self.push_scope();
+
+            for (parameter, argument) in bindings {
                 self.define(parameter, argument);
             }
+
             let return_value = self.eval_block(&body, ast, refs);
 
             self.pop_scope();

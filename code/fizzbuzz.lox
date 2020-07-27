@@ -1,17 +1,30 @@
 fun modulo(x, y) {
-    return x - (y * (x / y))
+    return x - (y * (x / y));
 }
 
-fun fizzbuzz(count) {
-    for (i = 0; i < count; ++i) {
-        if (modulo(i, 15) == 0) {
-            print "FizzBuzz";
-        } else if (modulo(i, 5)) {
-            print "Fizz";
-        } else if (modulo(i, 3)) {
-            print "Buzz";
-        }
+fun fizzbuzz(i) {
+    if modulo(15, i) == 0 {
+       print "Fizzbuzz";
+       return;
+    }
+
+    if modulo(5, i) == 0 {
+       print "Fizz";
+       return;
+    }
+
+    if modulo(3, i) == 0 {
+       print "Buzz";
+       return;
+    }
+
+    print i;
+}
+
+fun play(count) {
+    for var i = 0; i < count; i = i + 1 {
+        fizzbuzz(i);
     }
 }
 
-fizzbuzz(100);
+play(100);
