@@ -12,10 +12,11 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     let exit_status = match args.as_slice() {
-        [_]              => repl(),
-        [_, script_file] => run_script(&script_file),
-        [..]             => {
-            println!("Usage: lox [script]");
+        [_]                              => repl(),
+        [_, script_file]                 => run_script(&script_file),
+        [_, c, script_file] if c == "-c" => compile_script(&script_file),
+        [..]                             => {
+            println!("Usage: lox [-c] [script]");
             64
         }
     };
@@ -75,4 +76,14 @@ fn run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
             65
         }
     }
+}
+
+fn compile_script<P: AsRef<Path>>(_file: P) -> ExitStatus {
+    use rlox::chunk::{Chunk, OpCode};
+
+    let mut chunk = Chunk::new();
+    chunk.write(OpCode::Return);
+    eprintln!("{:?}", &chunk);
+
+    0
 }

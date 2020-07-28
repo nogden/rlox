@@ -8,6 +8,8 @@ mod interpreter;
 mod error;
 mod native_functions;
 
+pub mod chunk;
+
 use std::{
     fmt, io,
     path::Path,
