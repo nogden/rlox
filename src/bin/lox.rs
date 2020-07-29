@@ -79,11 +79,13 @@ fn run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
 }
 
 fn compile_script<P: AsRef<Path>>(_file: P) -> ExitStatus {
-    use rlox::chunk::{Chunk, OpCode};
+    use rlox::chunk::Chunk;
 
     let mut chunk = Chunk::new();
-    chunk.write(OpCode::Return);
-    eprintln!("{:?}", &chunk);
+    let constant = chunk.add_constant(3.2);
+    chunk.write_constant(constant, 127);
+    chunk.write_return(127);
+    eprintln!("== test chunk ==\n{:?}", &chunk);
 
     0
 }

@@ -9,6 +9,7 @@ mod error;
 mod native_functions;
 
 pub mod chunk;
+pub mod value;
 
 use std::{
     fmt, io,

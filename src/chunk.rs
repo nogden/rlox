@@ -1,10 +1,13 @@
-use std::{fmt, slice, iter, convert::TryFrom};
+use std::{fmt, convert::TryFrom};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
+
+use crate::value::Value;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, IntoPrimitive, TryFromPrimitive)]
 pub enum OpCode {
+    Constant,
     Return,
 }
 
@@ -15,14 +18,20 @@ pub struct UnknownOpCode {
     opcode: u8,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Chunk {
-    memory: Vec<u8>,
+    instructions: Vec<u8>,
+    constants: Vec<Value>,
+    line_numbers: Vec<(usize, u32)>,
 }
+
+#[derive(Clone, Copy)]
+pub struct ConstantAddr(u8);
 
 impl OpCode {
     pub fn operand_size(&self) -> u8 {
         match self {
+            OpCode::Constant => 1,
             OpCode::Return => 0,
         }
     }
@@ -30,50 +39,79 @@ impl OpCode {
 
 impl Chunk {
     pub fn new() -> Chunk {
-        Chunk { memory: Vec::new() }
+        Chunk::default()
     }
 
-    pub fn write(&mut self, operation: OpCode) {
-        self.memory.push(operation.into());
+    pub fn write_return(&mut self, line: u32) {
+        self.record_line_number(line);
+        self.instructions.push(OpCode::Return.into());
     }
 
-    pub fn instructions(&self) -> Instructions {
-        Instructions { memory: self.memory.iter().enumerate() }
+    pub fn write_constant(&mut self, constant: ConstantAddr, line: u32) {
+        self.record_line_number(line);
+        self.instructions.push(OpCode::Constant.into());
+        self.instructions.push(constant.0);
     }
-}
 
-pub struct Instructions<'m> {
-    memory: iter::Enumerate<slice::Iter<'m, u8>>
-}
+    pub fn add_constant(&mut self, constant: Value) -> ConstantAddr {
+        let location = self.constants.len();
+        self.constants.push(constant);
+        ConstantAddr(location as u8)
+    }
 
-impl<'m> Iterator for Instructions<'m> {
-    type Item = Result<(usize, OpCode), UnknownOpCode>;
+    fn record_line_number(&mut self, line: u32) {
+        let offset = self.instructions.len();
+        if let Some((_, last_line)) = self.line_numbers.last() {
+            if line != *last_line {
+                self.line_numbers.push((offset, line));
+            }
+        } else {
+            self.line_numbers.push((offset, line));
+        }
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let (offset, byte) = self.memory.next()?;
-        let opcode = match OpCode::try_from(*byte) {
-            Ok(opcode) => opcode,
-            Err(_) => return Some(Err(UnknownOpCode { offset, opcode: *byte }))
-        };
+    fn fmt_instruction<'b>(
+        &self,
+        opcode: OpCode,
+        offset: usize,
+        f: &mut fmt::Formatter,
+        mut bytes: impl Iterator<Item = (usize, &'b u8)>
+    ) -> fmt::Result {
+        write!(f, "{:#04x}  ", offset)?;
 
-        for _ in 0..opcode.operand_size() {
-            self.memory.next();
+        match self.line_numbers.binary_search_by_key(&offset, |e| e.0) {
+            Ok(index) => {
+                let line_number = self.line_numbers.get(index)
+                    .expect("Binary search is broken").1;
+                write!(f, "{:4}  {:?} ", line_number, opcode)?;
+            }
+            Err(_) => write!(f, "   |  {:?} ", opcode)?
         }
 
-        Some(Ok((offset, opcode)))
+        match opcode {
+            OpCode::Constant => {
+                let (_, constant_addr) = bytes.next()
+                    .expect("Unexpected end of chunk");
+                let constant_value = self.constants.get(*constant_addr as usize)
+                    .expect("Missing expected constant");
+                write!(f, "{:6} '{}'", constant_addr, constant_value)?;
+            }
+            OpCode::Return => {}
+        }
+
+        writeln!(f)
     }
 }
 
 impl fmt::Debug for Chunk {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for instruction in self.instructions() {
-            match instruction {
-                Ok((offset, operation)) =>
-                    write!(f, "{:04}  {:?}", offset, operation)?,
-                Err(UnknownOpCode { offset, opcode }) =>
-                    write!(f, "{:04}  {:#04x} <unknown opcode>", offset, opcode)?
+        let mut bytes = self.instructions.iter().enumerate();
+        while let Some((offset, byte)) = bytes.next() {
+            if let Ok(opcode) = OpCode::try_from(*byte) {
+                self.fmt_instruction(opcode, offset, f, &mut bytes)?;
+            } else {
+                writeln!(f, "{:#04x}  <unknown opcode> {:#04x}", offset, byte)?;
             }
-
         }
 
         Ok(())
