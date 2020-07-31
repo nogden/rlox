@@ -1,4 +1,5 @@
 #![feature(or_patterns)]
+#![feature(slice_ptr_range)]
 
 mod token;
 mod scanner;
@@ -8,8 +9,10 @@ mod interpreter;
 mod error;
 mod native_functions;
 
-pub mod chunk;
+pub mod bytecode;
 pub mod value;
+pub mod vm;
+pub mod disassemble;
 
 use std::{
     fmt, io,

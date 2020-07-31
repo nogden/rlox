@@ -79,13 +79,27 @@ fn run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
 }
 
 fn compile_script<P: AsRef<Path>>(_file: P) -> ExitStatus {
-    use rlox::chunk::Chunk;
+    use rlox::{
+        bytecode::{Chunk, Instruction::*},
+        vm::VirtualMachine,
+        disassemble,
+    };
+
+    let mut vm = VirtualMachine;
 
     let mut chunk = Chunk::new();
     let constant = chunk.add_constant(3.2);
-    chunk.write_constant(constant, 127);
-    chunk.write_return(127);
-    eprintln!("== test chunk ==\n{:?}", &chunk);
+    chunk.write(&constant, 127);
+    chunk.write(&constant, 127);
+    chunk.write(&constant, 127);
+    chunk.write(&constant, 127);
+    chunk.write(&constant, 128);
+    chunk.write(&constant, 129);
+    chunk.write(&Return, 129);
+    disassemble::chunk(&chunk, "test chunk");
+
+
+    vm.execute(&chunk).unwrap();
 
     0
 }
