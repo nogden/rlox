@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use crate::{
     bytecode::{Chunk, OpCode, Instruction},
+    value::Value,
     vm,
     disassemble,
 };
@@ -39,6 +40,14 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
             eprint!("{:?}  {:16}  '{}'", OpCode::Constant, address.0, constant);
         },
         Return => eprint!("{:?}", OpCode::Return),
+    }
+    eprintln!();
+}
+
+pub fn stack(stack: &[Value]) {
+    eprint!("        ");
+    for item in stack.iter().rev() {
+        eprint!("[ {} ]", item)
     }
     eprintln!();
 }

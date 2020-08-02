@@ -7,6 +7,7 @@ use thiserror::Error;
 
 use crate::{
     bytecode::{Chunk, OpCode, Instruction, ConstantAddr},
+    value::Value,
 };
 
 #[derive(Clone, Debug)]
@@ -21,12 +22,16 @@ pub enum Error {
     RuntimeError,
 }
 
+const STACK_SIZE: usize = 256;
+
 struct VmState<'c> {
     ip: *const u8,
     end_of_code: *const u8, // One past chunk end.
 
-    // Holding this reference ensures that ip is always valid
+    // Ensure that the chunk can't be modified so ip isn't invalidated.
     chunk: &'c Chunk,
+
+    stack: Vec<Value>,
 }
 
 impl<'c> VmState<'c> {
@@ -35,8 +40,14 @@ impl<'c> VmState<'c> {
         VmState {
             ip: start,
             end_of_code: end,
-            chunk
+            chunk,
+            stack: Vec::with_capacity(STACK_SIZE),
         }
+    }
+
+    #[cfg(trace)]
+    fn offset(&self) -> usize {
+        self.ip as usize - self.chunk.code.as_ptr() as usize
     }
 }
 
@@ -47,45 +58,63 @@ impl VirtualMachine {
     }
 
     fn run(&mut self, vm: &mut VmState) -> Result<(), Error> {
+        // Safety: We use a raw pointer as the instruction pointer for
+        // performance. We could represent the instruction stream as
+        // an iterator, but this is a poor fit given that traversal is
+        // non-linear and we need to change chunks. We would also
+        // incur a check for Option::None on every instruction.
+        //
+        // Safety is enforced in 2 ways.
+        // 1) We ensure a well formed instruction stream by requiring
+        //    all writes to a chunk to go through its type-safe
+        //    interface.
+        // 2) The VmState holds a shared reference to the current
+        //    chunk, which guarantees that the underlying vector cannot
+        //    be modified during execution.
         loop {
             debug_assert!(vm.ip < vm.end_of_code, "Instruction pointer overrun");
+            // Safety: Safe as long as we always bump vm.ip by the
+            // size of the last instruction.
             let instruction = unsafe { decode(vm.ip) };
 
             #[cfg(trace)] {
                 use crate::disassemble;
-                let code_start = vm.chunk.code.as_ptr() as usize;
-                let offset = unsafe { vm.ip.sub(code_start) as usize };
-                disassemble::instruction(vm.chunk, offset, &instruction);
+                disassemble::stack(&vm.stack);
+                disassemble::instruction(vm.chunk, vm.offset(), &instruction);
             }
 
             use Instruction::*;
             match instruction {
                 Constant { address } => {
                     let constant = unsafe {
-                        // Safety: This is guaranteed to be ok since
-                        // `address` can only be obtained by adding
-                        // the constant, enforeced by the type system.
+                        // Safety: This is guaranteed to be ok since a
+                        // ConstantAddr can only be obtained by adding
+                        // the constant, so it has to be present.
                         vm.chunk.constants.get_unchecked(address.0 as usize)
                     };
-                    println!("{}", constant);
+                    vm.stack.push(*constant);
                 }
-                Return => { return Ok(()) }
+                Return => {
+                    println!("{}", vm.stack.pop().expect("Empty stack (Return)"));
+                    return Ok(())
+                }
             }
-            // Safety: As long as instruction.size() is accurate this is
-            // guaranteed to be safe.
+            // Safety: Safe as long as the instruction stream is well
+            // formed and the underlying vector doesn't change.
             vm.ip = unsafe { vm.ip.add(instruction.size()) };
         }
     }
 }
 
 pub(crate) unsafe fn decode(address: *const u8) -> Instruction {
-    // Safety: address must point to an opcode in a valid chunk
+    // Safety: 'address' must point to an opcode in a valid chunk
+    // Speed: It should be safe to replace this with a mem::transmute()
+    //        as long as we keep the chunk writing interface typesafe.
     let opcode = OpCode::try_from(*address).expect("Invalid opcode");
 
     match opcode {
         OpCode::Constant => Instruction::Constant {
-            // Safety: This should be safe as the writing code
-            // guarantees that instructions are written as a unit.
+            // Safety: Safe as long as the instruction stream is well formed.
             address: ConstantAddr(*address.add(1))
         },
         OpCode::Return => Instruction::Return,
