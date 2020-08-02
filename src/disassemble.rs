@@ -23,6 +23,10 @@ pub fn chunk(chunk: &Chunk, name: &str) {
     }
 }
 
+macro_rules! op_code {
+    ($instruction:tt) => { eprint!("{:?}", OpCode::$instruction) }
+}
+
 pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
     use Instruction::*;
 
@@ -39,14 +43,19 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
             let constant = chunk.constants[address.0 as usize];
             eprint!("{:?}  {:16}  '{}'", OpCode::Constant, address.0, constant);
         },
-        Return => eprint!("{:?}", OpCode::Return),
+        Add      => op_code!(Add),
+        Divide   => op_code!(Divide),
+        Multiply => op_code!(Multiply),
+        Negate   => op_code!(Negate),
+        Return   => op_code!(Return),
+        Subtract => op_code!(Subtract),
     }
     eprintln!();
 }
 
 pub fn stack(stack: &[Value]) {
     eprint!("        ");
-    for item in stack.iter().rev() {
+    for item in stack.iter() {
         eprint!("[ {} ]", item)
     }
     eprintln!();

@@ -51,6 +51,14 @@ impl<'c> VmState<'c> {
     }
 }
 
+macro_rules! binary_operator {
+    ($vm:ident, $operator:tt) => {{
+        let b = $vm.stack.pop().expect("Empty stack (Binary Op)");
+        let a = $vm.stack.pop().expect("Empty stack (Binary Op)");
+        $vm.stack.push(a $operator b);
+    }}
+}
+
 impl VirtualMachine {
     pub fn execute(&mut self, chunk: &Chunk) -> Result<(), Error> {
         let mut vm = VmState::new(chunk);
@@ -94,6 +102,14 @@ impl VirtualMachine {
                     };
                     vm.stack.push(*constant);
                 }
+                Add      => binary_operator!(vm, +),
+                Divide   => binary_operator!(vm, /),
+                Multiply => binary_operator!(vm, *),
+                Subtract => binary_operator!(vm, -),
+                Negate => {
+                    let value = vm.stack.last_mut().expect("Empty stack (Negate)");
+                    *value = -(*value);
+                }
                 Return => {
                     println!("{}", vm.stack.pop().expect("Empty stack (Return)"));
                     return Ok(())
@@ -117,6 +133,11 @@ pub(crate) unsafe fn decode(address: *const u8) -> Instruction {
             // Safety: Safe as long as the instruction stream is well formed.
             address: ConstantAddr(*address.add(1))
         },
-        OpCode::Return => Instruction::Return,
+        OpCode::Add      => Instruction::Add,
+        OpCode::Divide   => Instruction::Divide,
+        OpCode::Multiply => Instruction::Multiply,
+        OpCode::Negate   => Instruction::Negate,
+        OpCode::Return   => Instruction::Return,
+        OpCode::Subtract => Instruction::Subtract,
     }
 }

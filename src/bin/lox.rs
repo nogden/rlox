@@ -88,16 +88,17 @@ fn compile_script<P: AsRef<Path>>(_file: P) -> ExitStatus {
     let mut vm = VirtualMachine;
 
     let mut chunk = Chunk::new();
-    let constant = chunk.add_constant(3.2);
-    chunk.write(&constant, 127);
-    chunk.write(&constant, 127);
-    chunk.write(&constant, 127);
-    chunk.write(&constant, 127);
-    chunk.write(&constant, 128);
-    chunk.write(&constant, 129);
-    chunk.write(&Return, 129);
+    let opt = chunk.add_constant(1.2);
+    let tpf = chunk.add_constant(3.4);
+    let fps = chunk.add_constant(5.6);
+    chunk.write(&opt, 1);
+    chunk.write(&tpf, 1);
+    chunk.write(&Add, 1);
+    chunk.write(&fps, 2);
+    chunk.write(&Divide, 2);
+    chunk.write(&Negate, 3);
+    chunk.write(&Return, 4);
     disassemble::chunk(&chunk, "test chunk");
-
 
     vm.execute(&chunk).unwrap();
 

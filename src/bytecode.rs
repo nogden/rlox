@@ -1,5 +1,4 @@
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use thiserror::Error;
 
 use crate::{
     value::Value,
@@ -7,22 +6,25 @@ use crate::{
 
 #[derive(Debug, Clone, Copy)]
 pub enum Instruction {
+    Add,
     Constant { address: ConstantAddr },
+    Divide,
+    Multiply,
+    Negate,
     Return,
+    Subtract,
 }
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, IntoPrimitive, TryFromPrimitive)]
 pub enum OpCode {
+    Add,
     Constant,
+    Divide,
+    Multiply,
+    Negate,
     Return,
-}
-
-#[derive(Debug, Clone, Copy, Error)]
-#[error("Byte {opcode} at {offset:#04x} does not match any known op-code")]
-pub struct UnknownOpCode {
-    offset: usize,
-    opcode: u8,
+    Subtract,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -40,8 +42,13 @@ impl Instruction {
         use Instruction::*;
 
         match self {
+            Add             => 1,
             Constant { .. } => 2,
+            Divide          => 1,
+            Multiply        => 1,
+            Negate          => 1,
             Return          => 1,
+            Subtract        => 1,
         }
     }
 }
@@ -56,11 +63,16 @@ impl Chunk {
 
         self.record_line_number(line);
         match instruction {
+            Add => self.code.push(OpCode::Add.into()),
             Constant { address } => {
                 self.code.push(OpCode::Constant.into());
                 self.code.push(address.0);
             }
-            Return => self.code.push(OpCode::Return.into())
+            Divide => self.code.push(OpCode::Divide.into()),
+            Multiply => self.code.push(OpCode::Multiply.into()),
+            Negate => self.code.push(OpCode::Negate.into()),
+            Return => self.code.push(OpCode::Return.into()),
+            Subtract => self.code.push(OpCode::Subtract.into()),
         }
     }
 
