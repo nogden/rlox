@@ -51,8 +51,12 @@ impl VirtualMachine {
             debug_assert!(vm.ip < vm.end_of_code, "Instruction pointer overrun");
             let instruction = unsafe { decode(vm.ip) };
 
-            #[cfg(trace)]
-            debug::disassemble(chunk, offset, instruction);
+            #[cfg(trace)] {
+                use crate::disassemble;
+                let code_start = vm.chunk.code.as_ptr() as usize;
+                let offset = unsafe { vm.ip.sub(code_start) as usize };
+                disassemble::instruction(vm.chunk, offset, &instruction);
+            }
 
             use Instruction::*;
             match instruction {
