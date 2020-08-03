@@ -12,10 +12,11 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     let exit_status = match args.as_slice() {
-        [_]                              => repl(),
-        [_, script_file]                 => run_script(&script_file),
-        [_, c, script_file] if c == "-c" => compile_script(&script_file),
-        [..]                             => {
+        [_]                         => repl(),
+        [_, t] if t == "-t"         => slow_repl(),
+        [_, script]                 => run_script(&script),
+        [_, t, script] if t == "-t" => slow_run_script(&script),
+        _                           => {
             println!("Usage: lox [-c] [script]");
             64
         }
@@ -24,15 +25,17 @@ fn main() {
     std::process::exit(exit_status);
 }
 
-fn repl() -> ExitStatus {
-    let mut input = String::new();
+fn slow_repl() -> ExitStatus {
+    use rlox::Lox;
+
+    let mut input = String::with_capacity(50);
     let stdin = io::stdin();
     let mut input_stream = stdin.lock();
     let stdout = &mut io::stdout();
-    let mut lox = rlox::Lox::new(stdout);
+    let mut lox = Lox::new(stdout);
     let path = Path::new("(REPL)");
 
-    println!("RLox 1.0 (interactive mode)");
+    println!("RLox 1.0 Treewalk (interactive mode)");
     loop {
         print!("> ");
         io::stdout().flush().expect("Unable to flush stdout");
@@ -53,7 +56,7 @@ fn repl() -> ExitStatus {
     }
 }
 
-fn run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
+fn slow_run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
     let script = match std::fs::read_to_string(file.as_ref()) {
         Ok(contents) => contents,
         Err(error) => {
@@ -78,29 +81,26 @@ fn run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
     }
 }
 
-fn compile_script<P: AsRef<Path>>(_file: P) -> ExitStatus {
-    use rlox::{
-        bytecode::{Chunk, Instruction::*},
-        vm::VirtualMachine,
-        disassemble,
-    };
+fn repl() -> ExitStatus {
+    use rlox::VirtualMachine;
 
-    let mut vm = VirtualMachine;
+    let mut input = String::with_capacity(50);
+    let stdin = io::stdin();
+    let mut input_stream = stdin.lock();
+    let stdout = &mut io::stdout();
+    let path = Path::new("(REPL)");
+    let mut vm = VirtualMachine::new(stdout);
 
-    let mut chunk = Chunk::new();
-    let opt = chunk.add_constant(1.2);
-    let tpf = chunk.add_constant(3.4);
-    let fps = chunk.add_constant(5.6);
-    chunk.write(&opt, 1);
-    chunk.write(&tpf, 1);
-    chunk.write(&Add, 1);
-    chunk.write(&fps, 2);
-    chunk.write(&Divide, 2);
-    chunk.write(&Negate, 3);
-    chunk.write(&Return, 4);
-    disassemble::chunk(&chunk, "test chunk");
+    println!("RLox VM 1.0 (interactive mode)");
+    loop {
+        print!("> ");
+        io::stdout().flush().expect("Unable to flush stdout");
+        input_stream.read_line(&mut input).expect("Unable to read from stdin");
+        vm.execute(&path, &input);
+        input.clear();
+    }
+}
 
-    vm.execute(&chunk).unwrap();
-
+fn run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
     0
 }

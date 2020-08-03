@@ -1,6 +1,7 @@
 use std::{
     ops::Range,
     convert::TryFrom,
+    io,
 };
 
 use thiserror::Error;
@@ -10,8 +11,10 @@ use crate::{
     value::Value,
 };
 
-#[derive(Clone, Debug)]
-pub struct VirtualMachine;
+#[derive(Clone)]
+pub(crate) struct Runtime<'io> {
+    pub(crate) stdout: &'io dyn io::Write,
+}
 
 #[derive(Clone, Debug, Error)]
 pub enum Error {
@@ -59,7 +62,7 @@ macro_rules! binary_operator {
     }}
 }
 
-impl VirtualMachine {
+impl<'io> Runtime<'io> {
     pub fn execute(&mut self, chunk: &Chunk) -> Result<(), Error> {
         let mut vm = VmState::new(chunk);
         self.run(&mut vm)

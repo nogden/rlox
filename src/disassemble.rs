@@ -3,7 +3,7 @@ use std::ops::Range;
 use crate::{
     bytecode::{Chunk, OpCode, Instruction},
     value::Value,
-    vm,
+    runtime,
     disassemble,
 };
 
@@ -14,7 +14,7 @@ pub fn chunk(chunk: &Chunk, name: &str) {
     while ip < end {
         // Safety: Since we're iterating between the code block
         // bounds, this is guaranteed to be safe.
-        let instruction = unsafe { vm::decode(ip) };
+        let instruction = unsafe { runtime::decode(ip) };
         let offset = ip as usize - start as usize;
         disassemble::instruction(chunk, offset, &instruction);
         // Safety: As long as instruction.size() returns the right

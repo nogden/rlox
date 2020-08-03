@@ -11,7 +11,7 @@ mod native_functions;
 
 pub mod bytecode;
 pub mod value;
-pub mod vm;
+pub mod runtime;
 pub mod disassemble;
 
 use std::{
@@ -34,6 +34,20 @@ pub enum LoxError<'s> {
 pub enum Status {
     AwaitingInput,
     Terminated(i32),
+}
+
+pub struct VirtualMachine<'io> {
+    runtime: runtime::Runtime<'io>,
+}
+
+impl<'io> VirtualMachine<'io> {
+    pub fn new(stdout: &'io mut dyn io::Write) -> VirtualMachine<'io> {
+        VirtualMachine { runtime: runtime::Runtime { stdout } }
+    }
+
+    pub fn execute<'s>(&mut self, _file: &Path, source_code: &'s str) {
+
+    }
 }
 
 pub struct Lox<'io> {
