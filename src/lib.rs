@@ -11,6 +11,7 @@ mod native_functions;
 
 pub mod bytecode;
 pub mod value;
+pub mod compiler;
 pub mod runtime;
 pub mod disassemble;
 
@@ -27,7 +28,9 @@ pub type LoxResult<'s, T> = std::result::Result<T, LoxError<'s>>;
 #[derive(Debug)]
 pub enum LoxError<'s> {
     ParseErrors(Vec<error::ParseError<'s>>),
-    RuntimeError(interpreter::RuntimeError<'s>)
+    CompileErrors(Vec<compiler::CompileError<'s>>),
+    RuntimeError(interpreter::RuntimeError<'s>),
+    VmError(runtime::RuntimeError),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -45,8 +48,14 @@ impl<'io> VirtualMachine<'io> {
         VirtualMachine { runtime: runtime::Runtime { stdout } }
     }
 
-    pub fn execute<'s>(&mut self, _file: &Path, source_code: &'s str) {
+    pub fn execute<'s>(
+        &mut self, _file: &Path, source_code: &'s str
+    ) -> Result<(), LoxError<'s>> {
+        use scanner::Scanner;
 
+        let ast = parser::parse(source_code.tokens())?;
+        let bytecode = compiler::compile(&ast)?;
+        Ok(self.runtime.execute(&bytecode)?)
     }
 }
 
@@ -90,11 +99,18 @@ impl<'s> fmt::Display for LoxError<'s> {
         match self {
             ParseErrors(parse_errors) => {
                 for error in parse_errors { writeln!(f, "ERROR {}", error)? }
-                Ok(())
             },
 
-            RuntimeError(runtime_error) => write!(f, "ERROR {}", runtime_error)
+            CompileErrors(compiler_errors) => {
+                for error in compiler_errors { writeln!(f, "ERROR {}", error)? }
+            }
+
+            RuntimeError(runtime_error) => write!(f, "ERROR {}", runtime_error)?,
+
+            VmError(runtime_error) => write!(f, "ERROR {}", runtime_error)?
         }
+
+        Ok(())
     }
 }
 
@@ -107,5 +123,17 @@ impl<'s> From<Vec<error::ParseError<'s>>> for LoxError<'s> {
 impl<'s> From<interpreter::RuntimeError<'s>> for LoxError<'s> {
     fn from(error: interpreter::RuntimeError<'s>) -> Self {
         Self::RuntimeError(error)
+    }
+}
+
+impl<'s> From<Vec<compiler::CompileError<'s>>> for LoxError<'s> {
+    fn from(errors: Vec<compiler::CompileError<'s>>) -> Self {
+        Self::CompileErrors(errors)
+    }
+}
+
+impl<'s> From<runtime::RuntimeError> for LoxError<'s> {
+    fn from(error: runtime::RuntimeError) -> Self {
+        Self::VmError(error)
     }
 }

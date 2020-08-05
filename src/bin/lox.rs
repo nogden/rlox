@@ -56,13 +56,13 @@ fn slow_repl() -> ExitStatus {
     }
 }
 
-fn slow_run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
-    let script = match std::fs::read_to_string(file.as_ref()) {
+fn slow_run_script<P: AsRef<Path>>(script_file: P) -> ExitStatus {
+    let script = match std::fs::read_to_string(script_file.as_ref()) {
         Ok(contents) => contents,
         Err(error) => {
             println!(
                 "ERROR: Unable to read source file \"{}\": {}",
-                file.as_ref().display(),
+                script_file.as_ref().display(),
                 error
             );
             return 64
@@ -71,7 +71,7 @@ fn slow_run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
 
     let stdout = &mut io::stdout();
     let mut lox = rlox::Lox::new(stdout);
-    match lox.run(file.as_ref(), &script) {
+    match lox.run(script_file.as_ref(), &script) {
         Ok((_, Status::Terminated(exit_status))) => exit_status,
         Ok(_)                                    => 0,
         Err(error) => {
@@ -101,6 +101,24 @@ fn repl() -> ExitStatus {
     }
 }
 
-fn run_script<P: AsRef<Path>>(file: P) -> ExitStatus {
+fn run_script<P: AsRef<Path>>(script_file: P) -> ExitStatus {
+    use rlox::VirtualMachine;
+
+    let script = match std::fs::read_to_string(script_file.as_ref()) {
+        Ok(contents) => contents,
+        Err(error) => {
+            println!(
+                "ERROR: Unable to read source file \"{}\": {}",
+                script_file.as_ref().display(),
+                error
+            );
+            return 64
+        }
+    };
+
+    let stdout = &mut io::stdout();
+    let mut vm = VirtualMachine::new(stdout);
+    vm.execute(&script_file.as_ref(), &script);
+
     0
 }

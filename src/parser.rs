@@ -34,7 +34,7 @@ pub enum Expression<'s> {
     Binary(ExprIndex, Token<'s>, ExprIndex),
     Call(ExprIndex, Token<'s>, Vec<ExprIndex>),
     Grouping(ExprIndex),
-    Literal(TokenType<'s>),
+    Literal(Token<'s>),
     Logical(ExprIndex, Token<'s>, ExprIndex),
     Mutate(ExprIndex, Token<'s>, ExprIndex),
     SelfRef(Token<'s>),
@@ -326,10 +326,14 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             self.expression_statement()?
         };
 
-        let condition = if self.match_token(Semicolon)? {
-            self.add_expr(Literal(True))  // Empty conditions are always true
-        } else {
-            self.expression()?
+        let condition = match self.peek()? {
+            Some(token @ Token { token_type: Semicolon, .. }) => {
+                // Empty conditions are always true
+                let literal_true = Token { token_type: True, ..*token };
+                self.advance();
+                self.add_expr(Literal(literal_true))
+            }
+            _ => self.expression()?
         };
 
         self.consume(Semicolon)?;
@@ -586,7 +590,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             Some(token @ Token {
                 token_type: False | True | Nil | Number(_) | String(_), ..
             }) => {
-                let literal = token.token_type;
+                let literal = *token;
                 self.advance();
                 Ok(self.add_expr(Literal(literal)))
             }
@@ -681,7 +685,7 @@ impl<'s> fmt::Display for Ast<'s> {
                     write!(f, ")")
                 }
 
-                Literal(token_type) => match token_type {
+                Literal(token) => match token.token_type {
                     Number(n) => write!(f, "{}", n),
                     String(s) => write!(f, "\"{}\"", s),
                     Nil => write!(f, "nil"),

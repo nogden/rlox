@@ -496,7 +496,7 @@ impl<'io> Interpreter<'io> {
 
             Grouping(expr) => self.eval_expression(*expr, ast, refs),
 
-            Literal(token_type) => match *token_type {
+            Literal(token) => match token.token_type {
                 TT::Number(n)  => Ok(Number(n)),
                 TT::String(s)  => Ok(String(s.to_owned())),
                 TT::True       => Ok(Boolean(true)),

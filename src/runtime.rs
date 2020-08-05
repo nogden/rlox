@@ -17,12 +17,9 @@ pub(crate) struct Runtime<'io> {
 }
 
 #[derive(Clone, Debug, Error)]
-pub enum Error {
-    #[error("Compiler error")]
-    CompileError,
-
-    #[error("Runtime error")]
-    RuntimeError,
+pub enum RuntimeError {
+    #[error("Nothing to see here")]
+    Placeholder
 }
 
 const STACK_SIZE: usize = 256;
@@ -63,12 +60,12 @@ macro_rules! binary_operator {
 }
 
 impl<'io> Runtime<'io> {
-    pub fn execute(&mut self, chunk: &Chunk) -> Result<(), Error> {
+    pub fn execute(&mut self, chunk: &Chunk) -> Result<(), RuntimeError> {
         let mut vm = VmState::new(chunk);
         self.run(&mut vm)
     }
 
-    fn run(&mut self, vm: &mut VmState) -> Result<(), Error> {
+    fn run(&mut self, vm: &mut VmState) -> Result<(), RuntimeError> {
         // Safety: We use a raw pointer as the instruction pointer for
         // performance. We could represent the instruction stream as
         // an iterator, but this is a poor fit given that traversal is
