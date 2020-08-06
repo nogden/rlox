@@ -3,7 +3,7 @@ use thiserror::Error;
 use crate::{
     parser::{Ast, ExprIndex, StmtIndex, Expression, Statement},
     token::{Token, TokenType},
-    bytecode::{Chunk, Instruction},
+    bytecode::{IncompleteChunk, Chunk, Instruction},
 };
 
 #[derive(Debug, Clone, Error)]
@@ -23,12 +23,13 @@ pub fn compile<'s>(ast: &Ast<'s>) -> Result<Chunk, Vec<CompileError<'s>>> {
             errors.push(error)
         }
     }
+    let bytecode = compiler.bytecode.complete();
 
-    if errors.is_empty() { Ok(compiler.bytecode) } else { Err(errors) }
+    if errors.is_empty() { Ok(bytecode) } else { Err(errors) }
 }
 
 struct Compiler {
-    bytecode: Chunk,
+    bytecode: IncompleteChunk,
 }
 
 impl Compiler {
@@ -52,6 +53,21 @@ impl Compiler {
         use Instruction::*;
 
         match ast.expression(expression) {
+            Binary(lhs, operator, rhs) => {
+                use TokenType::*;
+
+                self.compile_expression(*lhs, ast)?;
+                self.compile_expression(*rhs, ast)?;
+                let instruction = match operator.token_type {
+                    Plus  => Add,
+                    Minus => Subtract,
+                    Star  => Multiply,
+                    Slash => Divide,
+                    _ => unreachable!("Invalid binary operator")
+                };
+                self.bytecode.write(&instruction, operator.line);
+            }
+
             Grouping(expr) => self.compile_expression(*expr, ast)?,
 
             Literal(token) => {

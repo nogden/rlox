@@ -28,6 +28,13 @@ pub enum OpCode {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct IncompleteChunk {
+    code: Vec<u8>,
+    constants: Vec<Value>,
+    line_numbers: Vec<(Offset, LineNumber)>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Chunk {
     pub(crate) code: Vec<u8>,
     pub(crate) constants: Vec<Value>,
@@ -57,10 +64,12 @@ impl Instruction {
 }
 
 impl Chunk {
-    pub fn new() -> Chunk {
-        Chunk::default()
+    pub fn new() -> IncompleteChunk {
+        IncompleteChunk::default()
     }
+}
 
+impl IncompleteChunk {
     pub fn write(&mut self, instruction: &Instruction, line: LineNumber) {
         use Instruction::*;
 
@@ -86,6 +95,16 @@ impl Chunk {
             Some(Instruction::Constant { address: ConstantAddr(location as u8) })
         } else {
             None
+        }
+    }
+
+    pub fn complete(mut self) -> Chunk {
+        self.code.push(OpCode::Return.into());
+
+        Chunk {
+            code: self.code,
+            constants: self.constants,
+            line_numbers: self.line_numbers
         }
     }
 

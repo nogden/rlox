@@ -96,7 +96,9 @@ fn repl() -> ExitStatus {
         print!("> ");
         io::stdout().flush().expect("Unable to flush stdout");
         input_stream.read_line(&mut input).expect("Unable to read from stdin");
-        vm.execute(&path, &input);
+        if let Err(error) = vm.execute(&path, &input) {
+            println!("{}", error);
+        }
         input.clear();
     }
 }
@@ -118,7 +120,9 @@ fn run_script<P: AsRef<Path>>(script_file: P) -> ExitStatus {
 
     let stdout = &mut io::stdout();
     let mut vm = VirtualMachine::new(stdout);
-    vm.execute(&script_file.as_ref(), &script);
+    if let Err(error) = vm.execute(&script_file.as_ref(), &script) {
+        println!("{}", error);
+    }
 
     0
 }
