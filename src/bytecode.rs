@@ -1,8 +1,13 @@
+use std::fmt;
+
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-use crate::{
-    value::Value,
-};
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Value {
+    Boolean(bool),
+    Number(f64),
+    Nil,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum Instruction {
@@ -116,6 +121,18 @@ impl IncompleteChunk {
             }
         } else {
             self.line_numbers.push((offset, line));
+        }
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Value::*;
+
+        match self {
+            Boolean(b) => write!(f, "{}", b),
+            Nil        => write!(f, "nil"),
+            Number(n)  => write!(f, "{}", n),
         }
     }
 }

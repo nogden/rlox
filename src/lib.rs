@@ -10,7 +10,6 @@ mod error;
 mod native_functions;
 
 pub mod bytecode;
-pub mod value;
 pub mod compiler;
 pub mod runtime;
 pub mod disassemble;
@@ -45,7 +44,7 @@ pub struct VirtualMachine<'io> {
 
 impl<'io> VirtualMachine<'io> {
     pub fn new(stdout: &'io mut dyn io::Write) -> VirtualMachine<'io> {
-        VirtualMachine { runtime: runtime::Runtime { stdout } }
+        VirtualMachine { runtime: runtime::Runtime::new(stdout) }
     }
 
     pub fn execute<'s>(

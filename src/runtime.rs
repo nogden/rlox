@@ -7,19 +7,31 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    bytecode::{Chunk, OpCode, Instruction, ConstantAddr},
-    value::Value,
+    bytecode::{Chunk, OpCode, Instruction, ConstantAddr, Value},
 };
 
 #[derive(Clone)]
 pub(crate) struct Runtime<'io> {
-    pub(crate) stdout: &'io dyn io::Write,
+    stdout: &'io dyn io::Write,
 }
 
 #[derive(Clone, Debug, Error)]
 pub enum RuntimeError {
-    #[error("Nothing to see here")]
-    Placeholder
+    #[error("(line {line}): Binary '{operator}' is not applicable \
+             to {lhs} and {rhs}")]
+    BinaryOperatorNotApplicable {
+        lhs: Value,
+        rhs: Value,
+        operator: char,
+        line: usize,
+    },
+
+    #[error("(line {line}): Unary '{operator}' is not applicable to {operand}")]
+    UnaryOperatorNotApplicable {
+        operator: char,
+        operand: Value,
+        line: usize,
+    }
 }
 
 const STACK_SIZE: usize = 256;
@@ -45,21 +57,46 @@ impl<'c> VmState<'c> {
         }
     }
 
-    #[cfg(trace)]
+    #[inline]
+    fn line_number(&self) -> usize {
+        let offset = self.offset();
+        match self.chunk.line_numbers.binary_search_by_key(&offset, |e| e.0) {
+            Ok(index) => self.chunk.line_numbers[index].1,
+            Err(insert_index) => {
+                debug_assert!(insert_index > 0, "Line numbers out of sync");
+                self.chunk.line_numbers[insert_index - 1].1
+            }
+        }
+    }
+
     fn offset(&self) -> usize {
         self.ip as usize - self.chunk.code.as_ptr() as usize
     }
 }
 
 macro_rules! binary_operator {
-    ($vm:ident, $operator:tt) => {{
-        let b = $vm.stack.pop().expect("Empty stack (Binary Op)");
-        let a = $vm.stack.pop().expect("Empty stack (Binary Op)");
-        $vm.stack.push(a $operator b);
+    ($vm:ident, $op:tt, $($type:tt)|+ -> $ret:tt) => {{
+        let rhs = $vm.stack.pop().expect("Empty stack (Binary Op)");
+        let lhs = $vm.stack.pop().expect("Empty stack (Binary Op)");
+        let result = match (lhs, rhs) {
+            $( ($type(l), $type(r)) => $ret(l $op r), )*
+
+            _ => return Err(RuntimeError::BinaryOperatorNotApplicable {
+                lhs,
+                rhs,
+                operator: stringify!($op).chars().next().unwrap(),
+                line: $vm.line_number()
+            })
+        };
+        $vm.stack.push(result);
     }}
 }
 
 impl<'io> Runtime<'io> {
+    pub fn new(stdout: &'io dyn io::Write) -> Runtime<'io> {
+        Runtime { stdout }
+    }
+
     pub fn execute(&mut self, chunk: &Chunk) -> Result<(), RuntimeError> {
         let mut vm = VmState::new(chunk);
         self.run(&mut vm)
@@ -92,6 +129,7 @@ impl<'io> Runtime<'io> {
             }
 
             use Instruction::*;
+            use Value::*;
             match instruction {
                 Constant { address } => {
                     let constant = unsafe {
@@ -102,13 +140,21 @@ impl<'io> Runtime<'io> {
                     };
                     vm.stack.push(*constant);
                 }
-                Add      => binary_operator!(vm, +),
-                Divide   => binary_operator!(vm, /),
-                Multiply => binary_operator!(vm, *),
-                Subtract => binary_operator!(vm, -),
+                Add      => binary_operator!(vm, +, Number -> Number),
+                Divide   => binary_operator!(vm, /, Number -> Number),
+                Multiply => binary_operator!(vm, *, Number -> Number),
+                Subtract => binary_operator!(vm, -, Number -> Number),
                 Negate => {
                     let value = vm.stack.last_mut().expect("Empty stack (Negate)");
-                    *value = -(*value);
+                    if let Number(number) = value {
+                        *number = -(*number);
+                    } else {
+                        return Err(RuntimeError::UnaryOperatorNotApplicable {
+                            operator: '-',
+                            operand: *value,
+                            line: vm.line_number()
+                        })
+                    }
                 }
                 Return => {
                     println!("{}", vm.stack.pop().expect("Empty stack (Return)"));

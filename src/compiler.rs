@@ -3,7 +3,7 @@ use thiserror::Error;
 use crate::{
     parser::{Ast, ExprIndex, StmtIndex, Expression, Statement},
     token::{Token, TokenType},
-    bytecode::{IncompleteChunk, Chunk, Instruction},
+    bytecode::{IncompleteChunk, Chunk, Instruction, Value},
 };
 
 #[derive(Debug, Clone, Error)]
@@ -75,7 +75,8 @@ impl Compiler {
 
                 match token.token_type {
                     Number(number) => {
-                        if let Some(constant) = self.bytecode.add_constant(number) {
+                        let num = Value::Number(number);
+                        if let Some(constant) = self.bytecode.add_constant(num) {
                             self.bytecode.write(&constant, token.line);
                         } else {
                             return Err(CompileError::TooManyConstants(*token))
