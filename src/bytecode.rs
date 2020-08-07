@@ -14,10 +14,14 @@ pub enum Instruction {
     Add,
     Constant { address: ConstantAddr },
     Divide,
+    False,
     Multiply,
     Negate,
+    Nil,
+    Not,
     Return,
     Subtract,
+    True,
 }
 
 #[repr(u8)]
@@ -26,10 +30,14 @@ pub enum OpCode {
     Add,
     Constant,
     Divide,
+    False,
     Multiply,
     Negate,
+    Nil,
+    Not,
     Return,
     Subtract,
+    True,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -52,18 +60,24 @@ type LineNumber = usize;
 #[derive(Debug, Clone, Copy)]
 pub struct ConstantAddr(pub(crate) u8);
 
+impl Value {
+    pub fn is_falsey(&self) -> bool {
+        use Value::*;
+
+        match self {
+            Boolean(false) | Nil => true,
+            _ => false,
+        }
+    }
+}
+
 impl Instruction {
     pub fn size(&self) -> usize {
         use Instruction::*;
 
         match self {
-            Add             => 1,
             Constant { .. } => 2,
-            Divide          => 1,
-            Multiply        => 1,
-            Negate          => 1,
-            Return          => 1,
-            Subtract        => 1,
+            _ => 1
         }
     }
 }
@@ -86,10 +100,14 @@ impl IncompleteChunk {
             }
             Add      => self.code.push(OpCode::Add.into()),
             Divide   => self.code.push(OpCode::Divide.into()),
+            False    => self.code.push(OpCode::False.into()),
             Multiply => self.code.push(OpCode::Multiply.into()),
             Negate   => self.code.push(OpCode::Negate.into()),
+            Nil      => self.code.push(OpCode::Nil.into()),
+            Not      => self.code.push(OpCode::Not.into()),
             Return   => self.code.push(OpCode::Return.into()),
             Subtract => self.code.push(OpCode::Subtract.into()),
+            True     => self.code.push(OpCode::True.into()),
         }
     }
 

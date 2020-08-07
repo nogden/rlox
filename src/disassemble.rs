@@ -44,10 +44,14 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
         },
         Add      => op_code!(Add),
         Divide   => op_code!(Divide),
+        False    => op_code!(False),
         Multiply => op_code!(Multiply),
         Negate   => op_code!(Negate),
+        Nil      => op_code!(Nil),
+        Not      => op_code!(Not),
         Return   => op_code!(Return),
         Subtract => op_code!(Subtract),
+        True     => op_code!(True),
     }
     eprintln!();
 }

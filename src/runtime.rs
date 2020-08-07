@@ -131,6 +131,9 @@ impl<'io> Runtime<'io> {
             use Instruction::*;
             use Value::*;
             match instruction {
+                False => vm.stack.push(Boolean(false)),
+                True  => vm.stack.push(Boolean(true)),
+                Instruction::Nil   => vm.stack.push(Value::Nil),
                 Constant { address } => {
                     let constant = unsafe {
                         // Safety: This is guaranteed to be ok since a
@@ -155,6 +158,10 @@ impl<'io> Runtime<'io> {
                             line: vm.line_number()
                         })
                     }
+                }
+                Not => {
+                    let value = vm.stack.last_mut().expect("Empty stack (Negate)");
+                    *value = Boolean(value.is_falsey());
                 }
                 Return => {
                     println!("{}", vm.stack.pop().expect("Empty stack (Return)"));
@@ -181,9 +188,13 @@ pub(crate) unsafe fn decode(address: *const u8) -> Instruction {
         },
         OpCode::Add      => Instruction::Add,
         OpCode::Divide   => Instruction::Divide,
+        OpCode::False    => Instruction::False,
         OpCode::Multiply => Instruction::Multiply,
         OpCode::Negate   => Instruction::Negate,
+        OpCode::Nil      => Instruction::Nil,
+        OpCode::Not      => Instruction::Not,
         OpCode::Return   => Instruction::Return,
         OpCode::Subtract => Instruction::Subtract,
+        OpCode::True     => Instruction::True,
     }
 }

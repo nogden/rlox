@@ -74,6 +74,9 @@ impl Compiler {
                 use TokenType::*;
 
                 match token.token_type {
+                    False => self.bytecode.write(&Instruction::False, token.line),
+                    True  => self.bytecode.write(&Instruction::True, token.line),
+                    Nil   => self.bytecode.write(&Instruction::Nil, token.line),
                     Number(number) => {
                         let num = Value::Number(number);
                         if let Some(constant) = self.bytecode.add_constant(num) {
@@ -92,6 +95,7 @@ impl Compiler {
                 self.compile_expression(*expr, ast)?;
                 match token.token_type {
                     Minus => self.bytecode.write(&Negate, token.line),
+                    Bang  => self.bytecode.write(&Not, token.line),
                     _ => unreachable!()
                 }
             }
