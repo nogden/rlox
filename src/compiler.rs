@@ -54,15 +54,18 @@ impl Compiler {
 
         match ast.expression(expression) {
             Binary(lhs, operator, rhs) => {
-                use TokenType::*;
+                use TokenType as Token;
 
                 self.compile_expression(*lhs, ast)?;
                 self.compile_expression(*rhs, ast)?;
                 let instruction = match operator.token_type {
-                    Plus  => Add,
-                    Minus => Subtract,
-                    Star  => Multiply,
-                    Slash => Divide,
+                    Token::Plus       => Add,
+                    Token::Minus      => Subtract,
+                    Token::Star       => Multiply,
+                    Token::Slash      => Divide,
+                    Token::EqualEqual => Equal,
+                    Token::Greater    => Greater,
+                    Token::Less       => Less,
                     _ => unreachable!("Invalid binary operator")
                 };
                 self.bytecode.write(&instruction, operator.line);
@@ -71,13 +74,13 @@ impl Compiler {
             Grouping(expr) => self.compile_expression(*expr, ast)?,
 
             Literal(token) => {
-                use TokenType::*;
+                use TokenType as Token;
 
                 match token.token_type {
-                    False => self.bytecode.write(&Instruction::False, token.line),
-                    True  => self.bytecode.write(&Instruction::True, token.line),
-                    Nil   => self.bytecode.write(&Instruction::Nil, token.line),
-                    Number(number) => {
+                    Token::False => self.bytecode.write(&False, token.line),
+                    Token::True  => self.bytecode.write(&True, token.line),
+                    Token::Nil   => self.bytecode.write(&Nil, token.line),
+                    Token::Number(number) => {
                         let num = Value::Number(number);
                         if let Some(constant) = self.bytecode.add_constant(num) {
                             self.bytecode.write(&constant, token.line);
@@ -90,12 +93,12 @@ impl Compiler {
             }
 
             Unary(token, expr) => {
-                use TokenType::*;
+                use TokenType as Token;
 
                 self.compile_expression(*expr, ast)?;
                 match token.token_type {
-                    Minus => self.bytecode.write(&Negate, token.line),
-                    Bang  => self.bytecode.write(&Not, token.line),
+                    Token::Minus => self.bytecode.write(&Negate, token.line),
+                    Token::Bang  => self.bytecode.write(&Not, token.line),
                     _ => unreachable!()
                 }
             }

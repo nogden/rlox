@@ -131,9 +131,9 @@ impl<'io> Runtime<'io> {
             use Instruction::*;
             use Value::*;
             match instruction {
-                False => vm.stack.push(Boolean(false)),
-                True  => vm.stack.push(Boolean(true)),
-                Instruction::Nil   => vm.stack.push(Value::Nil),
+                False            => vm.stack.push(Boolean(false)),
+                True             => vm.stack.push(Boolean(true)),
+                Instruction::Nil => vm.stack.push(Value::Nil),
                 Constant { address } => {
                     let constant = unsafe {
                         // Safety: This is guaranteed to be ok since a
@@ -147,6 +147,13 @@ impl<'io> Runtime<'io> {
                 Divide   => binary_operator!(vm, /, Number -> Number),
                 Multiply => binary_operator!(vm, *, Number -> Number),
                 Subtract => binary_operator!(vm, -, Number -> Number),
+                Greater  => binary_operator!(vm, >, Number -> Boolean),
+                Less     => binary_operator!(vm, <, Number -> Boolean),
+                Equal    => {
+                    let b = vm.stack.pop().expect("Empty stack (Equal)");
+                    let a = vm.stack.pop().expect("Empty stack (Equal)");
+                    vm.stack.push(Boolean(a == b));
+                }
                 Negate => {
                     let value = vm.stack.last_mut().expect("Empty stack (Negate)");
                     if let Number(number) = value {
@@ -188,7 +195,10 @@ pub(crate) unsafe fn decode(address: *const u8) -> Instruction {
         },
         OpCode::Add      => Instruction::Add,
         OpCode::Divide   => Instruction::Divide,
+        OpCode::Equal    => Instruction::Equal,
         OpCode::False    => Instruction::False,
+        OpCode::Greater  => Instruction::Greater,
+        OpCode::Less     => Instruction::Less,
         OpCode::Multiply => Instruction::Multiply,
         OpCode::Negate   => Instruction::Negate,
         OpCode::Nil      => Instruction::Nil,
