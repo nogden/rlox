@@ -9,9 +9,10 @@ mod interpreter;
 mod error;
 mod native_functions;
 
-pub mod bytecode;
-pub mod compiler;
-pub mod runtime;
+mod value;
+mod bytecode;
+mod compiler;
+mod runtime;
 pub mod disassemble;
 
 use std::{

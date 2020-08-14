@@ -1,7 +1,8 @@
 use std::ops::Range;
 
 use crate::{
-    bytecode::{Chunk, OpCode, Instruction, Value},
+    bytecode::{Chunk, OpCode, Instruction},
+    value::Value,
     runtime,
     disassemble,
 };
@@ -39,7 +40,7 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
 
     match instruction {
         Constant { address } => {
-            let constant = chunk.constants[address.0 as usize];
+            let constant = &chunk.constants[address.0 as usize];
             eprint!("{:?}  {:16}  '{}'", OpCode::Constant, address.0, constant);
         },
         Add      => op_code!(Add),
@@ -62,7 +63,7 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
 pub fn stack(stack: &[Value]) {
     eprint!("        ");
     for item in stack.iter() {
-        eprint!("[ {} ]", item)
+        eprint!("[ {:?} ]", item)
     }
     eprintln!();
 }

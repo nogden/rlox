@@ -3,7 +3,8 @@ use thiserror::Error;
 use crate::{
     parser::{Ast, ExprIndex, StmtIndex, Expression, Statement},
     token::{Token, TokenType},
-    bytecode::{IncompleteChunk, Chunk, Instruction, Value},
+    bytecode::{IncompleteChunk, Chunk, Instruction},
+    value::Value,
 };
 
 #[derive(Debug, Clone, Error)]
@@ -80,14 +81,11 @@ impl Compiler {
                     Token::False => self.bytecode.write(&False, token.line),
                     Token::True  => self.bytecode.write(&True, token.line),
                     Token::Nil   => self.bytecode.write(&Nil, token.line),
-                    Token::Number(number) => {
-                        let num = Value::Number(number);
-                        if let Some(constant) = self.bytecode.add_constant(num) {
-                            self.bytecode.write(&constant, token.line);
-                        } else {
-                            return Err(CompileError::TooManyConstants(*token))
-                        }
-                    }
+                    Token::Number(number) =>
+                        self.write_constant(Value::Number(number), token)?,
+                    Token::String(s) => self.write_constant(
+                        Value::string(s.to_owned()), token
+                    )?,
                     _ => todo!()
                 }
             }
@@ -106,5 +104,15 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn write_constant<'s>(
+        &mut self, constant: Value, token: &Token<'s>
+    ) -> Result<(), CompileError<'s>> {
+        if let Some(constant) = self.bytecode.add_constant(constant) {
+            Ok(self.bytecode.write(&constant, token.line))
+        } else {
+            Err(CompileError::TooManyConstants(*token))
+        }
     }
 }

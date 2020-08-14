@@ -1,13 +1,6 @@
-use std::fmt;
-
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Value {
-    Boolean(bool),
-    Number(f64),
-    Nil,
-}
+use crate::value::Value;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Instruction {
@@ -65,17 +58,6 @@ type LineNumber = usize;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ConstantAddr(pub(crate) u8);
-
-impl Value {
-    pub fn is_falsey(&self) -> bool {
-        use Value::*;
-
-        match self {
-            Boolean(false) | Nil => true,
-            _ => false,
-        }
-    }
-}
 
 impl Instruction {
     pub fn size(&self) -> usize {
@@ -148,18 +130,6 @@ impl IncompleteChunk {
             }
         } else {
             self.line_numbers.push((offset, line));
-        }
-    }
-}
-
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Value::*;
-
-        match self {
-            Boolean(b) => write!(f, "{}", b),
-            Nil        => write!(f, "nil"),
-            Number(n)  => write!(f, "{}", n),
         }
     }
 }

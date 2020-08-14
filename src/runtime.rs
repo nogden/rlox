@@ -7,7 +7,8 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    bytecode::{Chunk, OpCode, Instruction, ConstantAddr, Value},
+    bytecode::{Chunk, OpCode, Instruction, ConstantAddr},
+    value::Value,
 };
 
 #[derive(Clone)]
@@ -78,7 +79,7 @@ macro_rules! binary_operator {
     ($vm:ident, $op:tt, $($type:tt)|+ -> $ret:tt) => {{
         let rhs = $vm.stack.pop().expect("Empty stack (Binary Op)");
         let lhs = $vm.stack.pop().expect("Empty stack (Binary Op)");
-        let result = match (lhs, rhs) {
+        let result = match (&lhs, &rhs) {
             $( ($type(l), $type(r)) => $ret(l $op r), )*
 
             _ => return Err(RuntimeError::BinaryOperatorNotApplicable {
@@ -141,7 +142,7 @@ impl<'io> Runtime<'io> {
                         // the constant, so it has to be present.
                         vm.chunk.constants.get_unchecked(address.0 as usize)
                     };
-                    vm.stack.push(*constant);
+                    vm.stack.push(constant.clone());
                 }
                 Add      => binary_operator!(vm, +, Number -> Number),
                 Divide   => binary_operator!(vm, /, Number -> Number),
@@ -161,7 +162,7 @@ impl<'io> Runtime<'io> {
                     } else {
                         return Err(RuntimeError::UnaryOperatorNotApplicable {
                             operator: '-',
-                            operand: *value,
+                            operand: value.clone(),
                             line: vm.line_number()
                         })
                     }
