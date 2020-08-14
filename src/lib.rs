@@ -1,5 +1,6 @@
 #![feature(or_patterns)]
 #![feature(slice_ptr_range)]
+#![feature(box_patterns)]
 
 mod token;
 mod scanner;

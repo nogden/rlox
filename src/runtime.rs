@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::{
     bytecode::{Chunk, OpCode, Instruction, ConstantAddr},
-    value::Value,
+    value::{Value, RefType},
 };
 
 #[derive(Clone)]
@@ -144,7 +144,19 @@ impl<'io> Runtime<'io> {
                     };
                     vm.stack.push(constant.clone());
                 }
-                Add      => binary_operator!(vm, +, Number -> Number),
+                Add      => {
+                    let rhs = vm.stack.pop().expect("Empty stack (Add)");
+                    let lhs = vm.stack.pop().expect("Empty stack (Add)");
+                    let result = match (lhs, rhs) {
+                        (Number(a), Number(b)) => Number(a + b),
+                        (Ref(box RefType::String(s1)),
+                         Ref(box RefType::String(s2))) => Value::string(s1 + &s2),
+                        (lhs, rhs) => return Err(RuntimeError::BinaryOperatorNotApplicable {
+                            lhs, rhs, operator: '+', line: vm.line_number()
+                        })
+                    };
+                    vm.stack.push(result);
+                }
                 Divide   => binary_operator!(vm, /, Number -> Number),
                 Multiply => binary_operator!(vm, *, Number -> Number),
                 Subtract => binary_operator!(vm, -, Number -> Number),

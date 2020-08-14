@@ -5,17 +5,17 @@ pub enum Value {
     Boolean(bool),
     Number(f64),
     Nil,
-    Ref(Box<HeapValue>),
+    Ref(Box<RefType>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum HeapValue {
+pub enum RefType {
     String(String),
 }
 
 impl Value {
     pub fn string(string: String) -> Value {
-        Value::Ref(Box::new(HeapValue::String(string)))
+        Value::Ref(Box::new(RefType::String(string)))
     }
 
     pub fn is_truthy(&self) -> bool {
@@ -45,9 +45,9 @@ impl fmt::Display for Value {
     }
 }
 
-impl fmt::Display for HeapValue {
+impl fmt::Display for RefType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use HeapValue::*;
+        use RefType::*;
 
         match self {
             String(s) => write!(f, "{}", s),
