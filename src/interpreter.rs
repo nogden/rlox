@@ -311,7 +311,7 @@ impl<'io> Interpreter<'io> {
                 Ok(None)
             }
 
-            Expression(expr) => self.eval_expression(*expr, ast, refs)
+            Expression(expr, _terminator) => self.eval_expression(*expr, ast, refs)
                 .map(|v| Some(v)),
 
             Fun(name, params, body) => {
@@ -338,7 +338,7 @@ impl<'io> Interpreter<'io> {
                 Ok(None)
             }
 
-            Print(expr) => {
+            Print(_keyword, expr) => {
                 match self.eval_expression(*expr, ast, refs)? {
                     Value::String(s) => writeln!(self.stdout, "{}", s),
                     result           => writeln!(self.stdout, "{}", result)

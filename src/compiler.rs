@@ -40,7 +40,14 @@ impl Compiler {
         use Statement::*;
 
         match ast.statement(statement) {
-            Expression(expr) => self.compile_expression(*expr, ast)?,
+            Expression(expr, termintaor) => {
+                self.compile_expression(*expr, ast)?;
+                self.bytecode.write(&Instruction::Pop, termintaor.line)
+            }
+            Print(keyword, expr) => {
+                self.compile_expression(*expr, ast)?;
+                self.bytecode.write(&Instruction::Print, keyword.line)
+            }
             _ => todo!()
         }
 

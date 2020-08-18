@@ -105,7 +105,7 @@ impl<'s> Resolver<'s> {
                 self.class_type = enclosing_class_type;
             }
 
-            Expression(expr) => self.resolve_expression(*expr, ast)?,
+            Expression(expr, _terminator) => self.resolve_expression(*expr, ast)?,
 
             Fun(name, parameters, body) => {
                 self.declare(name)?;
@@ -121,7 +121,7 @@ impl<'s> Resolver<'s> {
                 }
             }
 
-            Print(expr) => self.resolve_expression(*expr, ast)?,
+            Print(_keyword, expr) => self.resolve_expression(*expr, ast)?,
 
             Return(token, optional_expression) => {
                 if self.scope_type == ScopeType::Global {

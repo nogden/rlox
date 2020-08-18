@@ -53,6 +53,8 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
         Negate   => op_code!(Negate),
         Nil      => op_code!(Nil),
         Not      => op_code!(Not),
+        Pop      => op_code!(Pop),
+        Print    => op_code!(Print),
         Return   => op_code!(Return),
         Subtract => op_code!(Subtract),
         True     => op_code!(True),

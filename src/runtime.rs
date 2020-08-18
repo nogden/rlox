@@ -183,8 +183,11 @@ impl<'io> Runtime<'io> {
                     let value = vm.stack.last_mut().expect("Empty stack (Negate)");
                     *value = Boolean(value.is_falsey());
                 }
+                Pop => { vm.stack.pop().expect("Empty stack (Pop)"); }
+                Print => {
+                    println!("{}", vm.stack.pop().expect("Empty stack (Print)"));
+                }
                 Return => {
-                    println!("{}", vm.stack.pop().expect("Empty stack (Return)"));
                     return Ok(())
                 }
             }
@@ -216,6 +219,8 @@ pub(crate) unsafe fn decode(address: *const u8) -> Instruction {
         OpCode::Negate   => Instruction::Negate,
         OpCode::Nil      => Instruction::Nil,
         OpCode::Not      => Instruction::Not,
+        OpCode::Pop      => Instruction::Pop,
+        OpCode::Print    => Instruction::Print,
         OpCode::Return   => Instruction::Return,
         OpCode::Subtract => Instruction::Subtract,
         OpCode::True     => Instruction::True,

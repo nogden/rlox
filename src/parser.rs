@@ -18,10 +18,10 @@ pub struct Ast<'s> {
 pub enum Statement<'s> {
     Block(Vec<StmtIndex>),
     Class(Token<'s>, Option<ExprIndex>, Vec<StmtIndex>),
-    Expression(ExprIndex),
+    Expression(ExprIndex, Token<'s>),
     Fun(Token<'s>, Vec<Token<'s>>, Vec<StmtIndex>),
     If(ExprIndex, StmtIndex, Option<StmtIndex>),
-    Print(ExprIndex),
+    Print(Token<'s>, ExprIndex),
     Return(Token<'s>, Option<ExprIndex>),
     Var(Token<'s>, Option<ExprIndex>),
     While(ExprIndex, StmtIndex),
@@ -146,14 +146,14 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         }
     }
 
-    fn consume_terminator(&mut self) -> Result<(), ParseError<'s>> {
+    fn consume_terminator(&mut self) -> Result<Token<'s>, ParseError<'s>> {
         match self.consume(Semicolon) {
-            Ok(_) => Ok(()),
+            Ok(semicolon) => Ok(semicolon),
 
             // We accept EOF as the final statement terminator, but don't
             // consume it as it needs to be present to stop the parsing loop.
-            Err(UnexpectedToken { token: Token { token_type: Eof, ..}, .. })
-                => Ok(()),
+            Err(UnexpectedToken { token: token @ Token { token_type: Eof, ..}, .. })
+                => Ok(token),
 
             Err(unexpected_token) => Err(unexpected_token)
         }
@@ -274,9 +274,10 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 self.while_statement()
             }
 
-            Some(Token { token_type: Print, .. }) => {
+            Some(token @ Token { token_type: Print, .. }) => {
+                let keyword = *token;
                 self.advance();
-                self.print_statement()
+                self.print_statement(keyword)
             },
 
             Some(token @ Token { token_type: Return, .. }) => {
@@ -336,7 +337,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             _ => self.expression()?
         };
 
-        self.consume(Semicolon)?;
+        let terminator = self.consume(Semicolon)?;
 
         let increment = if self.match_token(LeftBrace)? {
             None
@@ -352,7 +353,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
         // Wrap the body in a new block with the increment as the last statement
         if let Some(expression) = increment {
-            let increment = self.add_stmt(Statement::Expression(expression));
+            let increment = self.add_stmt(Statement::Expression(expression, terminator));
             body = self.add_stmt(Statement::Block(vec![body, increment]));
         }
 
@@ -376,11 +377,11 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         Ok(Some(self.add_stmt(Statement::While(condition, body))))
     }
 
-    fn print_statement(&mut self) -> StmtResult<'s> {
+    fn print_statement(&mut self, keyword: Token<'s>) -> StmtResult<'s> {
         let expression = self.expression()?;
         self.consume_terminator()?;
 
-        Ok(Some(self.add_stmt(Statement::Print(expression))))
+        Ok(Some(self.add_stmt(Statement::Print(keyword, expression))))
     }
 
     fn return_statement(&mut self, keyword: Token<'s>) -> StmtResult<'s> {
@@ -423,9 +424,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
     fn expression_statement(&mut self) -> StmtResult<'s> {
         let expression = self.expression()?;
-        self.consume_terminator()?;
+        let terminator = self.consume_terminator()?;
 
-        Ok(Some(self.add_stmt(Statement::Expression(expression))))
+        Ok(Some(self.add_stmt(Statement::Expression(expression, terminator))))
     }
 
     fn expression(&mut self) -> Result<ExprIndex, ParseError<'s>> {
@@ -746,7 +747,7 @@ impl<'s> fmt::Display for Ast<'s> {
                     write!(f, ")")
                 }
 
-                Expression(expression) => {
+                Expression(expression, _terminator) => {
                     print_expression(f, *expression, ast)
                 }
 
@@ -774,7 +775,7 @@ impl<'s> fmt::Display for Ast<'s> {
                     write!(f, ")")
                 }
 
-                Print(expression) => {
+                Print(_keyword, expression) => {
                     write!(f, "(print ")?;
                     print_expression(f, *expression, ast)?;
                     write!(f, ")")
