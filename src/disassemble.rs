@@ -43,6 +43,10 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
             let constant = &chunk.constants[address.0 as usize];
             eprint!("{:?}  {:16}  '{}'", OpCode::Constant, address.0, constant);
         },
+        DefineGlobal { address } => {
+            let global_name = &chunk.constants[address.0 as usize];
+            eprint!("{:?}  {:16}  '{}'", OpCode::DefineGlobal, address.0, global_name);
+        }
         Add      => op_code!(Add),
         Divide   => op_code!(Divide),
         Equal    => op_code!(Equal),

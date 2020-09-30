@@ -2,6 +2,7 @@ use std::{
     ops::Range,
     convert::TryFrom,
     io,
+    collections::HashMap,
 };
 
 use thiserror::Error;
@@ -45,6 +46,7 @@ struct VmState<'c> {
     chunk: &'c Chunk,
 
     stack: Vec<Value>,
+    globals: HashMap<String, Value>,
 }
 
 impl<'c> VmState<'c> {
@@ -55,6 +57,7 @@ impl<'c> VmState<'c> {
             end_of_code: end,
             chunk,
             stack: Vec::with_capacity(STACK_SIZE),
+            globals: HashMap::default(),
         }
     }
 
@@ -70,15 +73,35 @@ impl<'c> VmState<'c> {
         }
     }
 
+    #[inline]
     fn offset(&self) -> usize {
         self.ip as usize - self.chunk.code.as_ptr() as usize
+    }
+
+    #[inline]
+    fn constant_at(&self, address: ConstantAddr) -> &Value {
+        unsafe {
+            // Safety: A ConstantAddr can only be obtained by adding
+            // the constant to the constant table, so it must be present.
+            self.chunk.constants.get_unchecked(address.0 as usize)
+        }
+    }
+
+    #[inline]
+    fn stack_pop(&mut self) -> Value {
+        self.stack.pop().expect("Popped empty stack")
+    }
+
+    #[inline]
+    fn stack_peek(&mut self) -> &mut Value {
+        self.stack.last_mut().expect("Peeked at empty stack")
     }
 }
 
 macro_rules! binary_operator {
     ($vm:ident, $op:tt, $($type:tt)|+ -> $ret:tt) => {{
-        let rhs = $vm.stack.pop().expect("Empty stack (Binary Op)");
-        let lhs = $vm.stack.pop().expect("Empty stack (Binary Op)");
+        let rhs = $vm.stack_pop();
+        let lhs = $vm.stack_pop();
         let result = match (&lhs, &rhs) {
             $( ($type(l), $type(r)) => $ret(l $op r), )*
 
@@ -136,17 +159,20 @@ impl<'io> Runtime<'io> {
                 True             => vm.stack.push(Boolean(true)),
                 Instruction::Nil => vm.stack.push(Value::Nil),
                 Constant { address } => {
-                    let constant = unsafe {
-                        // Safety: This is guaranteed to be ok since a
-                        // ConstantAddr can only be obtained by adding
-                        // the constant, so it has to be present.
-                        vm.chunk.constants.get_unchecked(address.0 as usize)
-                    };
-                    vm.stack.push(constant.clone());
+                    let constant = vm.constant_at(address).clone();
+                    vm.stack.push(constant);
                 }
-                Add      => {
-                    let rhs = vm.stack.pop().expect("Empty stack (Add)");
-                    let lhs = vm.stack.pop().expect("Empty stack (Add)");
+                DefineGlobal { address } => {
+                    let global_name = match vm.constant_at(address) {
+                        Value::Ref(box RefType::String(s)) => s.clone(),
+                        _ => unreachable!("Non-string global name")
+                    };
+                    let value = vm.stack_pop();
+                    vm.globals.insert(global_name, value);
+                }
+                Add => {
+                    let rhs = vm.stack_pop();
+                    let lhs = vm.stack_pop();
                     let result = match (lhs, rhs) {
                         (Number(a), Number(b)) => Number(a + b),
                         (Ref(box RefType::String(s1)),
@@ -163,12 +189,12 @@ impl<'io> Runtime<'io> {
                 Greater  => binary_operator!(vm, >, Number -> Boolean),
                 Less     => binary_operator!(vm, <, Number -> Boolean),
                 Equal    => {
-                    let b = vm.stack.pop().expect("Empty stack (Equal)");
-                    let a = vm.stack.pop().expect("Empty stack (Equal)");
+                    let b = vm.stack_pop();
+                    let a = vm.stack_pop();
                     vm.stack.push(Boolean(a == b));
                 }
                 Negate => {
-                    let value = vm.stack.last_mut().expect("Empty stack (Negate)");
+                    let value = vm.stack_peek();
                     if let Number(number) = value {
                         *number = -(*number);
                     } else {
@@ -180,12 +206,12 @@ impl<'io> Runtime<'io> {
                     }
                 }
                 Not => {
-                    let value = vm.stack.last_mut().expect("Empty stack (Negate)");
+                    let value = vm.stack_peek();
                     *value = Boolean(value.is_falsey());
                 }
-                Pop => { vm.stack.pop().expect("Empty stack (Pop)"); }
+                Pop => { vm.stack_pop(); }
                 Print => {
-                    println!("{}", vm.stack.pop().expect("Empty stack (Print)"));
+                    println!("{}", vm.stack_pop());
                 }
                 Return => {
                     return Ok(())
@@ -207,6 +233,9 @@ pub(crate) unsafe fn decode(address: *const u8) -> Instruction {
     match opcode {
         OpCode::Constant => Instruction::Constant {
             // Safety: Safe as long as the instruction stream is well formed.
+            address: ConstantAddr(*address.add(1))
+        },
+        OpCode::DefineGlobal => Instruction::DefineGlobal {
             address: ConstantAddr(*address.add(1))
         },
         OpCode::Add      => Instruction::Add,

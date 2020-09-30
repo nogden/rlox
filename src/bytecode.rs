@@ -6,6 +6,7 @@ use crate::value::Value;
 pub enum Instruction {
     Add,
     Constant { address: ConstantAddr },
+    DefineGlobal { address: ConstantAddr },
     Divide,
     Equal,
     False,
@@ -27,6 +28,7 @@ pub enum Instruction {
 pub enum OpCode {
     Add,
     Constant,
+    DefineGlobal,
     Divide,
     Equal,
     False,
@@ -69,6 +71,7 @@ impl Instruction {
 
         match self {
             Constant { .. } => 2,
+            DefineGlobal { .. } => 2,
             _ => 1
         }
     }
@@ -90,6 +93,10 @@ impl IncompleteChunk {
                 self.code.push(OpCode::Constant.into());
                 self.code.push(address.0);
             }
+            DefineGlobal { address } => {
+                self.code.push(OpCode::DefineGlobal.into());
+                self.code.push(address.0);
+            }
             Add      => self.code.push(OpCode::Add.into()),
             Divide   => self.code.push(OpCode::Divide.into()),
             Equal    => self.code.push(OpCode::Equal.into()),
@@ -108,11 +115,11 @@ impl IncompleteChunk {
         }
     }
 
-    pub fn add_constant(&mut self, constant: Value) -> Option<Instruction> {
+    pub fn add_constant(&mut self, constant: Value) -> Option<ConstantAddr> {
         let location = self.constants.len();
         if location < u8::MAX.into() {
             self.constants.push(constant);
-            Some(Instruction::Constant { address: ConstantAddr(location as u8) })
+            Some(ConstantAddr(location as u8))
         } else {
             None
         }

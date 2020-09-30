@@ -48,6 +48,21 @@ impl Compiler {
                 self.compile_expression(*expr, ast)?;
                 self.bytecode.write(&Instruction::Print, keyword.line)
             }
+            Var(name, optional_initialiser) => {
+                let address = self.bytecode.add_constant(
+                    Value::string(name.lexeme.to_owned())
+                ).ok_or(CompileError::TooManyConstants(*name))?;
+
+                if let Some(initialiser) = optional_initialiser {
+                    self.compile_expression(*initialiser, ast)?;
+                } else {
+                    self.bytecode.write(&Instruction::Nil, name.line)
+                }
+
+                self.bytecode.write(
+                    &Instruction::DefineGlobal { address }, name.line
+                )
+            }
             _ => todo!()
         }
 
@@ -88,11 +103,18 @@ impl Compiler {
                     Token::False => self.bytecode.write(&False, token.line),
                     Token::True  => self.bytecode.write(&True, token.line),
                     Token::Nil   => self.bytecode.write(&Nil, token.line),
-                    Token::Number(number) =>
-                        self.write_constant(Value::Number(number), token)?,
-                    Token::String(s) => self.write_constant(
-                        Value::string(s.to_owned()), token
-                    )?,
+                    Token::Number(number) => {
+                        let address = self.bytecode.add_constant(
+                            Value::Number(number)
+                        ).ok_or(CompileError::TooManyConstants(*token))?;
+                        self.bytecode.write(&Constant { address }, token.line)
+                    }
+                    Token::String(s) => {
+                        let address = self.bytecode.add_constant(
+                            Value::string(s.to_owned())
+                        ).ok_or(CompileError::TooManyConstants(*token))?;
+                        self.bytecode.write(&Constant { address }, token.line)
+                    }
                     _ => todo!()
                 }
             }
@@ -111,15 +133,5 @@ impl Compiler {
         }
 
         Ok(())
-    }
-
-    fn write_constant<'s>(
-        &mut self, constant: Value, token: &Token<'s>
-    ) -> Result<(), CompileError<'s>> {
-        if let Some(constant) = self.bytecode.add_constant(constant) {
-            Ok(self.bytecode.write(&constant, token.line))
-        } else {
-            Err(CompileError::TooManyConstants(*token))
-        }
     }
 }
