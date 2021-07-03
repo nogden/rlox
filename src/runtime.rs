@@ -30,12 +30,12 @@ pub enum RuntimeError {
 
 const STACK_SIZE: usize = 256;
 
-struct VmState<'c, 'st> {
+pub(crate) struct VmState<'c, 'st> {
     ip: *const u8,
     end_of_code: *const u8, // One past chunk end.
 
     // Ensure that the chunk can't be modified so ip isn't invalidated.
-    chunk: &'c Chunk,
+    pub(crate) chunk: &'c Chunk,
 
     stack: Vec<Value>,
     globals: HashMap<String, Value>,
@@ -56,7 +56,7 @@ impl<'c, 'st> VmState<'c, 'st> {
     }
 
     #[inline]
-    fn line_number(&self) -> usize {
+    pub(crate) fn line_number(&self) -> usize {
         let offset = self.offset();
         let location = self
             .chunk
@@ -73,7 +73,7 @@ impl<'c, 'st> VmState<'c, 'st> {
     }
 
     #[inline]
-    fn offset(&self) -> usize {
+    pub(crate) fn offset(&self) -> usize {
         self.ip as usize - self.chunk.code.as_ptr() as usize
     }
 
@@ -158,7 +158,7 @@ impl<'io> Runtime<'io> {
             {
                 use crate::disassemble;
                 disassemble::stack(&vm.stack);
-                disassemble::instruction(vm.chunk, vm.offset(), &instruction);
+                disassemble::instruction(&vm.chunk, vm.offset(), &instruction, vm.strings);
             }
 
             use Instruction::*;

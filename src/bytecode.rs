@@ -88,6 +88,7 @@ impl IncompleteChunk {
         use Instruction::*;
 
         self.record_line_number(line);
+
         #[rustfmt::skip]
         match instruction {
             Constant { address } => {

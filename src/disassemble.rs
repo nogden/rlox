@@ -1,12 +1,11 @@
-use std::ops::Range;
-
 use crate::{
     bytecode::{Chunk, Instruction, OpCode},
     disassemble, runtime,
-    value::Value,
+    value::{StringTable, Value},
 };
+use std::ops::Range;
 
-pub fn chunk(chunk: &Chunk, name: &str) {
+pub(crate) fn chunk(chunk: &Chunk, name: &str, strings: &StringTable) {
     eprintln!("== {} ==", name);
     let Range { start, end } = chunk.code.as_ptr_range();
     let mut ip = start;
@@ -15,7 +14,7 @@ pub fn chunk(chunk: &Chunk, name: &str) {
         // bounds, this is guaranteed to be safe.
         let instruction = unsafe { runtime::decode(ip) };
         let offset = ip as usize - start as usize;
-        disassemble::instruction(chunk, offset, &instruction);
+        disassemble::instruction(chunk, offset, &instruction, strings);
         // Safety: As long as instruction.size() returns the right
         // this is guaranteed to be safe.
         ip = unsafe { ip.add(instruction.size()) };
@@ -28,7 +27,7 @@ macro_rules! op_code {
     };
 }
 
-pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
+pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction, strings: &StringTable) {
     use Instruction::*;
 
     match chunk.line_numbers.binary_search_by_key(&offset, |e| e.0) {
@@ -43,16 +42,21 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
     match instruction {
         Constant { address } => {
             let constant = &chunk.constants[address.0 as usize];
-            eprint!("{:?}  {:16}  '{}'", OpCode::Constant, address.0, constant);
+            if let Value::String(sym) = constant {
+                let string = strings.resolve(*sym).expect("Missing string");
+                eprint!("{:?}  {:16}  '{}'", OpCode::Constant, address.0, string);
+            } else {
+                eprint!("{:?}  {:16}  '{}'", OpCode::Constant, address.0, constant);
+            }
         }
         DefineGlobal { address } => {
-            let global_name = &chunk.constants[address.0 as usize];
-            eprint!(
-                "{:?}  {:16}  '{}'",
-                OpCode::DefineGlobal,
-                address.0,
-                global_name
-            );
+            let global = &chunk.constants[address.0 as usize];
+            if let Value::String(sym) = global {
+                let string = strings.resolve(*sym).expect("Missing string");
+                eprint!("{:?}  {:16}  '{}'", OpCode::DefineGlobal, address.0, string);
+            } else {
+                eprint!("{:?}  {:16}  '{}'", OpCode::DefineGlobal, address.0, global);
+            }
         }
         Add =>      op_code!(Add),
         Divide =>   op_code!(Divide),
@@ -73,10 +77,10 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
     eprintln!();
 }
 
-pub fn stack(stack: &[Value]) {
-    eprint!("        ");
+pub(crate) fn stack(stack: &[Value]) {
+    eprint!("        |  [");
     for item in stack.iter() {
-        eprint!("[ {:?} ]", item)
+        eprint!(" {:?} ", item)
     }
-    eprintln!();
+    eprintln!("]");
 }
