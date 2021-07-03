@@ -1,11 +1,11 @@
-use std::{io, fmt, collections::HashMap, rc::Rc};
+use std::{collections::HashMap, fmt, io, rc::Rc};
 
 use thiserror::Error;
 
 use crate::{
-    token::{Token, TokenType},
-    parser::{Ast, Expression::*, Statement::*, StmtIndex, ExprIndex},
+    parser::{Ast, ExprIndex, Expression::*, Statement::*, StmtIndex},
     resolver::ReferenceTable,
+    token::{Token, TokenType},
 };
 
 pub struct Interpreter<'io> {
@@ -62,7 +62,7 @@ pub enum RuntimeError<'s> {
     ArityMismatch {
         expected: usize,
         provided: usize,
-        location: Token<'s>
+        location: Token<'s>,
     },
 
     #[error("(line {}): Binary '{operator}' is not appicable to {lhs} \
@@ -70,7 +70,7 @@ pub enum RuntimeError<'s> {
     BinaryOperatorNotApplicable {
         lhs: Value,
         rhs: Value,
-        operator: Token<'s>
+        operator: Token<'s>,
     },
 
     #[error("Unhandled stack unwind")]
@@ -81,15 +81,12 @@ pub enum RuntimeError<'s> {
     TypeMismatch {
         expected: &'static str,
         provided: Value,
-        location: Token<'s>
+        location: Token<'s>,
     },
 
     #[error("(line {}): Unary '{operator}' is not applicable to {value}",
             operator.line)]
-    UnaryOperatorNotApplicable {
-        value: Value,
-        operator: Token<'s>
-    },
+    UnaryOperatorNotApplicable { value: Value, operator: Token<'s> },
 
     #[error("(line {}): Unresolved identifier '{0}'", .0.line)]
     UnresolvedIdentifier(Token<'s>),
@@ -126,21 +123,17 @@ impl<'io> Interpreter<'io> {
     pub fn expose<T: AsRef<str>>(&mut self, name: T, function: NativeFn) {
         let index = NativeFnIndex(self.native_functions.len());
         self.native_functions.push(function);
-        self.globals.insert(
-            name.as_ref().to_owned(),
-            Value::NativeFunction(index)
-        );
+        self.globals
+            .insert(name.as_ref().to_owned(), Value::NativeFunction(index));
     }
 
-    pub fn evaluate<'s>(
-        &mut self, ast: &Ast<'s>, refs: &ReferenceTable
-    ) -> EvalResult<'s> {
+    pub fn evaluate<'s>(&mut self, ast: &Ast<'s>, refs: &ReferenceTable) -> EvalResult<'s> {
         let mut last_value = None;
         for statement in ast.top_level_statements() {
             last_value = self.eval_statement(*statement, ast, refs)?;
         }
 
-         Ok(last_value)
+        Ok(last_value)
     }
 
     fn define(&mut self, identifier: &str, value: Value) {
@@ -180,7 +173,7 @@ impl<'io> Interpreter<'io> {
             let environment = &mut self.environments[index.0];
             if let Some(bound_value) = environment.locals.get_mut(identifier) {
                 *bound_value = new_value;
-                return true
+                return true;
             }
             stack_frame = environment.parent;
         }
@@ -205,11 +198,12 @@ impl<'io> Interpreter<'io> {
         index
     }
 
-    fn allocate_environment(
-        &mut self, parent: Option<EnvIndex>
-    ) -> (EnvIndex, &mut Environment) {
+    fn allocate_environment(&mut self, parent: Option<EnvIndex>) -> (EnvIndex, &mut Environment) {
         let env_id = EnvIndex(self.environments.len());
-        self.environments.push(Environment { locals: HashMap::new(), parent });
+        self.environments.push(Environment {
+            locals: HashMap::new(),
+            parent,
+        });
         (env_id, &mut self.environments[env_id.0])
     }
 
@@ -218,7 +212,9 @@ impl<'io> Interpreter<'io> {
     }
 
     fn call_native_fn(
-        &mut self, function: NativeFnIndex, arguments: &Vec<Value>
+        &mut self,
+        function: NativeFnIndex,
+        arguments: &Vec<Value>,
     ) -> Result<Value, NativeError> {
         let f = self.native_functions[function.0];
         f(arguments)
@@ -227,8 +223,12 @@ impl<'io> Interpreter<'io> {
     // We bind the this keyword to an object by wrapping the methods
     // scope in a new scope that defines "this" as a reference to the object.
     fn bind_this(&mut self, function: &Value, object: &Value) -> Value {
+        #[rustfmt::skip]
         if let Value::Function {
-            parameters, body, environment, is_constructor
+            parameters,
+            body,
+            environment,
+            is_constructor,
         } = function {
             let (object_env_id, env) = self.allocate_environment(*environment);
             env.locals.insert("this".to_owned(), object.clone());
@@ -236,7 +236,7 @@ impl<'io> Interpreter<'io> {
                 parameters: parameters.clone(),
                 body: body.clone(),
                 environment: Some(object_env_id),
-                is_constructor: *is_constructor
+                is_constructor: *is_constructor,
             }
         } else {
             // This is enforced by the parser.
@@ -245,7 +245,10 @@ impl<'io> Interpreter<'io> {
     }
 
     fn eval_statement<'s>(
-        &mut self, statement: StmtIndex, ast: &Ast<'s>, refs: &ReferenceTable
+        &mut self,
+        statement: StmtIndex,
+        ast: &Ast<'s>,
+        refs: &ReferenceTable,
     ) -> EvalResult<'s> {
         match ast.statement(statement) {
             Block(statements) => {
@@ -260,11 +263,13 @@ impl<'io> Interpreter<'io> {
                 let super_class = if let Some(class) = optional_super_class {
                     match self.eval_expression(*class, ast, refs)? {
                         Value::Class(class) => Some(class.clone()),
-                        other_value => return Err(RuntimeError::TypeMismatch {
-                            expected: "class",
-                            provided: other_value.clone(),
-                            location: *name
-                        })
+                        other_value => {
+                            return Err(RuntimeError::TypeMismatch {
+                                expected: "class",
+                                provided: other_value.clone(),
+                                location: *name,
+                            })
+                        }
                     }
                 } else {
                     None
@@ -281,17 +286,15 @@ impl<'io> Interpreter<'io> {
                 for method_definition in method_definitions {
                     let method = ast.statement(*method_definition);
                     if let Fun(method_name, params, body) = method {
-                        let parameters = params.iter()
-                            .map(|t| t.lexeme.to_owned())
-                            .collect();
+                        let parameters = params.iter().map(|t| t.lexeme.to_owned()).collect();
                         methods.insert(
                             method_name.lexeme.to_owned(),
                             Value::Function {
                                 parameters,
                                 body: body.clone(),
                                 environment: self.stack,
-                                is_constructor: method_name.lexeme == "init"
-                            }
+                                is_constructor: method_name.lexeme == "init",
+                            },
                         );
                     } else {
                         unreachable!("Encountered non-function method")
@@ -302,28 +305,33 @@ impl<'io> Interpreter<'io> {
                     self.pop_scope();
                 }
 
-                self.assign(name.lexeme, Value::Class(Rc::new(Class {
-                    name: name.lexeme.to_owned(),
-                    methods,
-                    super_class,
-                })));
+                self.assign(
+                    name.lexeme,
+                    Value::Class(Rc::new(Class {
+                        name: name.lexeme.to_owned(),
+                        methods,
+                        super_class,
+                    })),
+                );
 
                 Ok(None)
             }
 
-            Expression(expr, _terminator) => self.eval_expression(*expr, ast, refs)
-                .map(|v| Some(v)),
+            Expression(expr, _terminator) => {
+                self.eval_expression(*expr, ast, refs).map(|v| Some(v))
+            }
 
             Fun(name, params, body) => {
-                let parameters = params.iter()
-                    .map(|t| t.lexeme.to_owned())
-                    .collect();
-                self.define(name.lexeme, Value::Function {
-                    parameters,
-                    body: body.clone(),
-                    environment: self.stack,
-                    is_constructor: false
-                });
+                let parameters = params.iter().map(|t| t.lexeme.to_owned()).collect();
+                self.define(
+                    name.lexeme,
+                    Value::Function {
+                        parameters,
+                        body: body.clone(),
+                        environment: self.stack,
+                        is_constructor: false,
+                    },
+                );
 
                 Ok(None)
             }
@@ -341,8 +349,9 @@ impl<'io> Interpreter<'io> {
             Print(_keyword, expr) => {
                 match self.eval_expression(*expr, ast, refs)? {
                     Value::String(s) => writeln!(self.stdout, "{}", s),
-                    result           => writeln!(self.stdout, "{}", result)
-                }.expect("Failed to write to stdout");
+                    result => writeln!(self.stdout, "{}", result),
+                }
+                .expect("Failed to write to stdout");
 
                 Ok(None)
             }
@@ -381,21 +390,26 @@ impl<'io> Interpreter<'io> {
     }
 
     fn eval_expression<'s>(
-        &mut self, expression: ExprIndex, ast: &Ast<'s>, refs: &ReferenceTable
+        &mut self,
+        expression: ExprIndex,
+        ast: &Ast<'s>,
+        refs: &ReferenceTable,
     ) -> ExprResult<'s> {
-        use Value::*;
         use TokenType as TT;
+        use Value::*;
 
         match ast.expression(expression) {
             Access(object, name) => {
                 let object = self.eval_expression(*object, ast, refs)?;
-                if let ObjectRef { ref class, instance } = object {
+                if let ObjectRef {
+                    ref class,
+                    instance,
+                } = object
+                {
                     let fields = &self.objects[instance.0];
                     if let Some(value) = fields.get(name.lexeme) {
                         Ok(value.clone())
-                    } else if let Some(
-                        function @ Function { .. }
-                    ) = class.method(name.lexeme) {
+                    } else if let Some(function @ Function { .. }) = class.method(name.lexeme) {
                         Ok(self.bind_this(function, &object))
                     } else {
                         Err(RuntimeError::UnresolvedIdentifier(*name))
@@ -419,9 +433,10 @@ impl<'io> Interpreter<'io> {
             }
 
             Binary(lhs, token, rhs) => {
-                let left  = self.eval_expression(*lhs, ast, refs)?;
+                let left = self.eval_expression(*lhs, ast, refs)?;
                 let right = self.eval_expression(*rhs, ast, refs)?;
 
+                #[rustfmt::skip]
                 match token.token_type {
                     TT::Greater      => greater(&left, &right, token),
                     TT::GreaterEqual => greater_eq(&left, &right, token),
@@ -433,41 +448,39 @@ impl<'io> Interpreter<'io> {
                     TT::Slash        => divide(&left, &right, token),
                     TT::Star         => multiply(&left, &right, token),
                     TT::Plus         => plus(&left, &right, token),
-                    _ => unreachable!("Binary operator other than (+|-|*|/)")
+                    _ => unreachable!("Binary operator other than (+|-|*|/)"),
                 }
             }
 
             Call(callee, token, args) => {
                 match self.eval_expression(*callee, ast, refs)? {
-                    function @ Function { .. } => {
-                        self.eval_fn(token, &function, args, ast, refs)
-                    },
+                    function @ Function { .. } => self.eval_fn(token, &function, args, ast, refs),
 
                     NativeFunction(function) => {
-                        let arguments = args.iter()
+                        let arguments = args
+                            .iter()
                             .map(|arg| self.eval_expression(*arg, ast, refs))
                             .collect::<Result<Vec<Value>, _>>()?;
 
-                        self.call_native_fn(function, &arguments).map_err(|e| {
-                            match e {
+                        self.call_native_fn(function, &arguments)
+                            .map_err(|e| match e {
                                 NativeError::ArityMismatch(expected_arity) => {
                                     RuntimeError::ArityMismatch {
                                         expected: expected_arity,
                                         provided: arguments.len(),
-                                        location: *token
+                                        location: *token,
                                     }
                                 }
                                 NativeError::TypeMismatch(expected, provided) => {
                                     RuntimeError::TypeMismatch {
                                         expected,
                                         provided,
-                                        location: *token
+                                        location: *token,
                                     }
                                 }
-                                _ => panic!("Native call returned error")
-                            }
-                        })
-                    },
+                                _ => panic!("Native call returned error"),
+                            })
+                    }
 
                     Class(class) => {
                         // Allocate a new object
@@ -475,7 +488,7 @@ impl<'io> Interpreter<'io> {
                         self.objects.push(HashMap::new());
                         let object = Value::ObjectRef {
                             class: class.clone(),
-                            instance
+                            instance,
                         };
 
                         if let Some(constructor) = class.methods.get("init") {
@@ -484,36 +497,45 @@ impl<'io> Interpreter<'io> {
                         }
 
                         Ok(object)
-                    },
+                    }
 
-                    value => return Err(RuntimeError::TypeMismatch {
-                        expected: "callable type",
-                        provided: value,
-                        location: *token
-                    })
+                    value => {
+                        return Err(RuntimeError::TypeMismatch {
+                            expected: "callable type",
+                            provided: value,
+                            location: *token,
+                        })
+                    }
                 }
             }
 
             Grouping(expr) => self.eval_expression(*expr, ast, refs),
 
+            #[rustfmt::skip]
             Literal(token) => match token.token_type {
-                TT::Number(n)  => Ok(Number(n)),
-                TT::String(s)  => Ok(String(s.to_owned())),
-                TT::True       => Ok(Boolean(true)),
-                TT::False      => Ok(Boolean(false)),
-                TT::Nil        => Ok(Nil),
-                _ => unreachable!(
-                    "Literal other than (number | string | true | false | nil)"
-                )
-            }
+                TT::Number(n) => Ok(Number(n)),
+                TT::String(s) => Ok(String(s.to_owned())),
+                TT::True      => Ok(Boolean(true)),
+                TT::False     => Ok(Boolean(false)),
+                TT::Nil       => Ok(Nil),
+                _ => unreachable!("Literal other than (number | string | true | false | nil)"),
+            },
 
             Logical(lhs, token, rhs) => {
                 let left = self.eval_expression(*lhs, ast, refs)?;
 
                 match token.token_type {
-                    TT::And => if left.is_falsey() { return Ok(left) },
-                    TT::Or  => if left.is_truthy() { return Ok(left) },
-                    _ => unreachable!("Logical operator other than (and | or)")
+                    TT::And => {
+                        if left.is_falsey() {
+                            return Ok(left);
+                        }
+                    }
+                    TT::Or => {
+                        if left.is_truthy() {
+                            return Ok(left);
+                        }
+                    }
+                    _ => unreachable!("Logical operator other than (and | or)"),
                 }
 
                 self.eval_expression(*rhs, ast, refs)
@@ -535,18 +557,21 @@ impl<'io> Interpreter<'io> {
                 }
             }
 
-            SelfRef(keyword) => Ok(self.resolve(
-                keyword.lexeme, refs.get(&expression)
-            ).expect("Unbound 'this' in object scope")),
+            SelfRef(keyword) => Ok(self
+                .resolve(keyword.lexeme, refs.get(&expression))
+                .expect("Unbound 'this' in object scope")),
 
             SuperRef(_keyword, method) => {
-                let super_depth = refs.get(&expression)
+                let super_depth = refs
+                    .get(&expression)
                     .expect("missing depth in reference table for 'super'");
-                let super_class = self.resolve("super", Some(&super_depth))
+                let super_class = self
+                    .resolve("super", Some(&super_depth))
                     .expect("missing binding for 'super'");
                 // 'this' is always bound one environment closer than 'super'
                 let this_depth = super_depth - 1;
-                let instance = self.resolve("this", Some(&this_depth))
+                let instance = self
+                    .resolve("this", Some(&this_depth))
                     .expect("missing binding for 'this'");
                 let unbound_method = if let Class(class) = super_class {
                     class.method(method.lexeme).cloned()
@@ -567,8 +592,8 @@ impl<'io> Interpreter<'io> {
 
                 match token.token_type {
                     TT::Minus => negate(&value, token),
-                    TT::Bang  => Ok(Boolean(!value.is_truthy())),
-                    _ => unreachable!("Unary operation other than (!|-)")
+                    TT::Bang => Ok(Boolean(!value.is_truthy())),
+                    _ => unreachable!("Unary operation other than (!|-)"),
                 }
             }
 
@@ -584,17 +609,21 @@ impl<'io> Interpreter<'io> {
         function: &Value,
         args: &Vec<ExprIndex>,
         ast: &Ast<'s>,
-        refs: &ReferenceTable
+        refs: &ReferenceTable,
     ) -> ExprResult<'s> {
         if let Value::Function {
-            parameters, body, environment, is_constructor
-        } = function {
+            parameters,
+            body,
+            environment,
+            is_constructor,
+        } = function
+        {
             if args.len() != parameters.len() {
                 return Err(RuntimeError::ArityMismatch {
                     expected: parameters.len(),
                     provided: args.len(),
-                    location: *token
-                })
+                    location: *token,
+                });
             }
 
             let mut bindings = Vec::new();
@@ -604,7 +633,7 @@ impl<'io> Interpreter<'io> {
                 bindings.push((parameter, argument));
             }
 
-            let stack = self.swap_stack(*environment);  // Restore closure
+            let stack = self.swap_stack(*environment); // Restore closure
             self.push_scope();
 
             for (parameter, argument) in bindings {
@@ -617,20 +646,18 @@ impl<'io> Interpreter<'io> {
             self.swap_stack(stack);
 
             if *is_constructor {
-                let env_index = environment
-                    .expect("missing object scope when calling constructor");
+                let env_index = environment.expect("missing object scope when calling constructor");
                 let env = &self.environments[env_index.0];
-                let object_ref = env.locals.get("this")
+                let object_ref = env
+                    .locals
+                    .get("this")
                     .expect("'this' not in scope when calling constructor");
                 Ok(object_ref.clone())
             } else {
                 match return_value {
-                    Ok(value)
-                        => Ok(value.unwrap_or(Value::Nil)),
-                    Err(RuntimeError::StackUnwind(value))
-                        => Ok(value.unwrap_or(Value::Nil)),
-                    Err(a_real_error)
-                        => Err(a_real_error),
+                    Ok(value) => Ok(value.unwrap_or(Value::Nil)),
+                    Err(RuntimeError::StackUnwind(value)) => Ok(value.unwrap_or(Value::Nil)),
+                    Err(a_real_error) => Err(a_real_error),
                 }
             }
         } else {
@@ -639,7 +666,10 @@ impl<'io> Interpreter<'io> {
     }
 
     fn eval_block<'s>(
-        &mut self, body: &Vec<StmtIndex>, ast: &Ast<'s>, refs: &ReferenceTable
+        &mut self,
+        body: &Vec<StmtIndex>,
+        ast: &Ast<'s>,
+        refs: &ReferenceTable,
     ) -> EvalResult<'s> {
         let mut last_value = None;
         for statement in body {
@@ -654,17 +684,18 @@ impl Value {
     fn is_truthy(&self) -> bool {
         match self {
             Value::Nil | Value::Boolean(false) => false,
-            _                                  => true
+            _ => true,
         }
     }
 
     fn is_falsey(&self) -> bool {
-        ! self.is_truthy()
+        !self.is_truthy()
     }
 
     pub fn value_type(&self) -> &'static str {
         use Value::*;
 
+        #[rustfmt::skip]
         match self {
             Boolean(_)        => "boolean",
             Class(_)          => "class",
@@ -682,6 +713,7 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Value::*;
 
+        #[rustfmt::skip]
         match self {
             Boolean(b)              => write!(f, "{}", b),
             Class(class)            => write!(f, "<class {}>", &class.name),
@@ -690,7 +722,7 @@ impl fmt::Display for Value {
             Nil                     => write!(f, "nil"),
             Number(n)               => write!(f, "{}", n),
             ObjectRef { class, .. } => write!(f, "<object {}>", &class.name),
-            String(s)               => write!(f, "\"{}\"", s,)
+            String(s)               => write!(f, "\"{}\"", s,),
         }
     }
 }
@@ -740,8 +772,8 @@ fn negate<'s>(value: &Value, operator: &Token<'s>) -> ExprResult<'s> {
         Number(n) => Ok(Number(-n)),
         _ => Err(RuntimeError::UnaryOperatorNotApplicable {
             value: value.clone(),
-            operator: *operator
-        })
+            operator: *operator,
+        }),
     }
 }
 
@@ -751,10 +783,10 @@ fn plus<'s>(lhs: &Value, rhs: &Value, operator: &Token<'s>) -> ExprResult<'s> {
     match (lhs, rhs) {
         (Number(l), Number(r)) => Ok(Number(l + r)),
         (String(l), String(r)) => Ok(String(l.clone() + r)),
-        _ => Err(RuntimeError::BinaryOperatorNotApplicable{
+        _ => Err(RuntimeError::BinaryOperatorNotApplicable {
             lhs: lhs.clone(),
             rhs: rhs.clone(),
-            operator: *operator
-        })
+            operator: *operator,
+        }),
     }
 }

@@ -1,9 +1,10 @@
+#![feature(custom_inner_attributes)]
+#![rustfmt::skip]
+
 mod utils;
 
 use utils::{result_of, output_of, string};
-
 use std::path::Path;
-
 use rlox::{Lox, Value::*};
 
 

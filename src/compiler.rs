@@ -1,21 +1,24 @@
-use thiserror::Error;
-
 use crate::{
-    parser::{Ast, ExprIndex, StmtIndex, Expression, Statement},
+    bytecode::{Chunk, IncompleteChunk, Instruction},
+    parser::{Ast, ExprIndex, Expression, Statement, StmtIndex},
     token::{Token, TokenType},
-    bytecode::{IncompleteChunk, Chunk, Instruction},
-    value::Value,
+    value::{StringTable, Value},
 };
+use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]
 pub enum CompileError<'s> {
-    #[error("(line {}) Too many constants inone chunk", .0.line)]
+    #[error("(line {}) Too many constants in one chunk", .0.line)]
     TooManyConstants(Token<'s>),
 }
 
-pub fn compile<'s>(ast: &Ast<'s>) -> Result<Chunk, Vec<CompileError<'s>>> {
+pub fn compile<'s, 'st>(
+    ast: &Ast<'s>,
+    strings: &'st mut StringTable,
+) -> Result<Chunk, Vec<CompileError<'s>>> {
     let mut compiler = Compiler {
         bytecode: Chunk::new(),
+        strings: strings,
     };
 
     let mut errors = Vec::new();
@@ -26,16 +29,23 @@ pub fn compile<'s>(ast: &Ast<'s>) -> Result<Chunk, Vec<CompileError<'s>>> {
     }
     let bytecode = compiler.bytecode.complete();
 
-    if errors.is_empty() { Ok(bytecode) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(bytecode)
+    } else {
+        Err(errors)
+    }
 }
 
-struct Compiler {
+struct Compiler<'st> {
     bytecode: IncompleteChunk,
+    strings: &'st mut StringTable,
 }
 
-impl Compiler {
+impl<'st> Compiler<'st> {
     fn compile_statement<'s>(
-        &mut self, statement: StmtIndex, ast: &Ast<'s>
+        &mut self,
+        statement: StmtIndex,
+        ast: &Ast<'s>,
     ) -> Result<(), CompileError<'s>> {
         use Statement::*;
 
@@ -49,9 +59,11 @@ impl Compiler {
                 self.bytecode.write(&Instruction::Print, keyword.line)
             }
             Var(name, optional_initialiser) => {
-                let address = self.bytecode.add_constant(
-                    Value::string(name.lexeme.to_owned())
-                ).ok_or(CompileError::TooManyConstants(*name))?;
+                let sym = self.strings.get_or_intern(name.lexeme);
+                let address = self
+                    .bytecode
+                    .add_constant(Value::String(sym))
+                    .ok_or(CompileError::TooManyConstants(*name))?;
 
                 if let Some(initialiser) = optional_initialiser {
                     self.compile_expression(*initialiser, ast)?;
@@ -59,18 +71,19 @@ impl Compiler {
                     self.bytecode.write(&Instruction::Nil, name.line)
                 }
 
-                self.bytecode.write(
-                    &Instruction::DefineGlobal { address }, name.line
-                )
+                self.bytecode
+                    .write(&Instruction::DefineGlobal { address }, name.line)
             }
-            _ => todo!()
+            _ => todo!(),
         }
 
         Ok(())
     }
 
     fn compile_expression<'s>(
-        &mut self, expression: ExprIndex, ast: &Ast<'s>
+        &mut self,
+        expression: ExprIndex,
+        ast: &Ast<'s>,
     ) -> Result<(), CompileError<'s>> {
         use Expression::*;
         use Instruction::*;
@@ -81,6 +94,7 @@ impl Compiler {
 
                 self.compile_expression(*lhs, ast)?;
                 self.compile_expression(*rhs, ast)?;
+                #[rustfmt::skip]
                 let instruction = match operator.token_type {
                     Token::Plus       => Add,
                     Token::Minus      => Subtract,
@@ -89,7 +103,7 @@ impl Compiler {
                     Token::EqualEqual => Equal,
                     Token::Greater    => Greater,
                     Token::Less       => Less,
-                    _ => unreachable!("Invalid binary operator")
+                    _ => unreachable!("Invalid binary operator"),
                 };
                 self.bytecode.write(&instruction, operator.line);
             }
@@ -101,21 +115,24 @@ impl Compiler {
 
                 match token.token_type {
                     Token::False => self.bytecode.write(&False, token.line),
-                    Token::True  => self.bytecode.write(&True, token.line),
-                    Token::Nil   => self.bytecode.write(&Nil, token.line),
+                    Token::True => self.bytecode.write(&True, token.line),
+                    Token::Nil => self.bytecode.write(&Nil, token.line),
                     Token::Number(number) => {
-                        let address = self.bytecode.add_constant(
-                            Value::Number(number)
-                        ).ok_or(CompileError::TooManyConstants(*token))?;
+                        let address = self
+                            .bytecode
+                            .add_constant(Value::Number(number))
+                            .ok_or(CompileError::TooManyConstants(*token))?;
                         self.bytecode.write(&Constant { address }, token.line)
                     }
                     Token::String(s) => {
-                        let address = self.bytecode.add_constant(
-                            Value::string(s.to_owned())
-                        ).ok_or(CompileError::TooManyConstants(*token))?;
+                        let sym = self.strings.get_or_intern(s);
+                        let address = self
+                            .bytecode
+                            .add_constant(Value::String(sym))
+                            .ok_or(CompileError::TooManyConstants(*token))?;
                         self.bytecode.write(&Constant { address }, token.line)
                     }
-                    _ => todo!()
+                    _ => todo!(),
                 }
             }
 
@@ -125,11 +142,11 @@ impl Compiler {
                 self.compile_expression(*expr, ast)?;
                 match token.token_type {
                     Token::Minus => self.bytecode.write(&Negate, token.line),
-                    Token::Bang  => self.bytecode.write(&Not, token.line),
-                    _ => unreachable!()
+                    Token::Bang => self.bytecode.write(&Not, token.line),
+                    _ => unreachable!(),
                 }
             }
-            _ => todo!()
+            _ => todo!(),
         }
 
         Ok(())

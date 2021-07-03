@@ -8,10 +8,7 @@ pub enum ParseError<'s> {
     InheritanceCycle(Token<'s>),
 
     #[error("(line {line}): Unexpected character '{character}'")]
-    UnexpectedCharacter {
-        character: &'s str,
-        line: usize
-    },
+    UnexpectedCharacter { character: &'s str, line: usize },
 
     #[error("Unexpected end of file")]
     UnexpectedEndOfFile,

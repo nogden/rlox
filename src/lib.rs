@@ -1,28 +1,24 @@
-#![feature(or_patterns)]
-#![feature(slice_ptr_range)]
 #![feature(box_patterns)]
+#![feature(stmt_expr_attributes)]
+#![feature(custom_inner_attributes)]
 
-mod token;
-mod scanner;
+mod error;
+mod interpreter;
+mod native_functions;
 mod parser;
 mod resolver;
-mod interpreter;
-mod error;
-mod native_functions;
+mod scanner;
+mod token;
 
-mod value;
 mod bytecode;
 mod compiler;
-mod runtime;
 pub mod disassemble;
+mod runtime;
+mod value;
 
-use std::{
-    fmt, io,
-    path::Path,
-    error::Error,
-};
+use std::{error::Error, fmt, io, path::Path};
 
-pub use interpreter::{Value, NativeFn, Interpreter};
+pub use interpreter::{Interpreter, NativeFn, Value};
 
 pub type LoxResult<'s, T> = std::result::Result<T, LoxError<'s>>;
 
@@ -46,22 +42,24 @@ pub struct VirtualMachine<'io> {
 
 impl<'io> VirtualMachine<'io> {
     pub fn new(stdout: &'io mut dyn io::Write) -> VirtualMachine<'io> {
-        VirtualMachine { runtime: runtime::Runtime::new(stdout) }
+        VirtualMachine {
+            runtime: runtime::Runtime::new(stdout),
+        }
     }
 
-    pub fn execute<'s>(
-        &mut self, _file: &Path, source_code: &'s str
-    ) -> Result<(), LoxError<'s>> {
+    pub fn execute<'s>(&mut self, _file: &Path, source_code: &'s str) -> Result<(), LoxError<'s>> {
         use scanner::Scanner;
 
         let ast = parser::parse(source_code.tokens())?;
-        let bytecode = compiler::compile(&ast)?;
-        Ok(self.runtime.execute(&bytecode)?)
+
+        let mut strings = value::StringTable::new();
+        let bytecode = compiler::compile(&ast, &mut strings)?;
+        Ok(self.runtime.execute(&bytecode, &mut strings)?)
     }
 }
 
 pub struct Lox<'io> {
-    interpreter: Interpreter<'io>
+    interpreter: Interpreter<'io>,
 }
 
 impl<'io> Lox<'io> {
@@ -99,16 +97,20 @@ impl<'s> fmt::Display for LoxError<'s> {
 
         match self {
             ParseErrors(parse_errors) => {
-                for error in parse_errors { writeln!(f, "ERROR {}", error)? }
-            },
+                for error in parse_errors {
+                    writeln!(f, "ERROR {}", error)?
+                }
+            }
 
             CompileErrors(compiler_errors) => {
-                for error in compiler_errors { writeln!(f, "ERROR {}", error)? }
+                for error in compiler_errors {
+                    writeln!(f, "ERROR {}", error)?
+                }
             }
 
             RuntimeError(runtime_error) => write!(f, "ERROR {}", runtime_error)?,
 
-            VmError(runtime_error) => write!(f, "ERROR {}", runtime_error)?
+            VmError(runtime_error) => write!(f, "ERROR {}", runtime_error)?,
         }
 
         Ok(())

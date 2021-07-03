@@ -1,16 +1,9 @@
-use std::{
-    ops::Range,
-    convert::TryFrom,
-    io,
-    collections::HashMap,
-};
-
-use thiserror::Error;
-
 use crate::{
-    bytecode::{Chunk, OpCode, Instruction, ConstantAddr},
-    value::{Value, RefType},
+    bytecode::{Chunk, ConstantAddr, Instruction, OpCode},
+    value::{StringTable, Value},
 };
+use std::{collections::HashMap, convert::TryFrom, io, ops::Range};
+use thiserror::Error;
 
 #[derive(Clone)]
 pub(crate) struct Runtime<'io> {
@@ -19,8 +12,7 @@ pub(crate) struct Runtime<'io> {
 
 #[derive(Clone, Debug, Error)]
 pub enum RuntimeError {
-    #[error("(line {line}): Binary '{operator}' is not applicable \
-             to {lhs} and {rhs}")]
+    #[error("(line {line}): Binary '{operator}' is not applicable to {lhs} and {rhs}")]
     BinaryOperatorNotApplicable {
         lhs: Value,
         rhs: Value,
@@ -33,12 +25,12 @@ pub enum RuntimeError {
         operator: char,
         operand: Value,
         line: usize,
-    }
+    },
 }
 
 const STACK_SIZE: usize = 256;
 
-struct VmState<'c> {
+struct VmState<'c, 'st> {
     ip: *const u8,
     end_of_code: *const u8, // One past chunk end.
 
@@ -47,10 +39,11 @@ struct VmState<'c> {
 
     stack: Vec<Value>,
     globals: HashMap<String, Value>,
+    strings: &'st mut StringTable,
 }
 
-impl<'c> VmState<'c> {
-    fn new(chunk: &Chunk) -> VmState {
+impl<'c, 'st> VmState<'c, 'st> {
+    fn new(chunk: &'c Chunk, strings: &'st mut StringTable) -> VmState<'c, 'st> {
         let Range { start, end } = chunk.code.as_ptr_range();
         VmState {
             ip: start,
@@ -58,13 +51,19 @@ impl<'c> VmState<'c> {
             chunk,
             stack: Vec::with_capacity(STACK_SIZE),
             globals: HashMap::default(),
+            strings,
         }
     }
 
     #[inline]
     fn line_number(&self) -> usize {
         let offset = self.offset();
-        match self.chunk.line_numbers.binary_search_by_key(&offset, |e| e.0) {
+        let location = self
+            .chunk
+            .line_numbers
+            .binary_search_by_key(&offset, |e| e.0);
+
+        match location {
             Ok(index) => self.chunk.line_numbers[index].1,
             Err(insert_index) => {
                 debug_assert!(insert_index > 0, "Line numbers out of sync");
@@ -85,6 +84,11 @@ impl<'c> VmState<'c> {
             // the constant to the constant table, so it must be present.
             self.chunk.constants.get_unchecked(address.0 as usize)
         }
+    }
+
+    #[inline]
+    fn resolve_string(&self, sym: usize) -> &str {
+        self.strings.resolve(sym).expect("Missing interned string")
     }
 
     #[inline]
@@ -121,8 +125,12 @@ impl<'io> Runtime<'io> {
         Runtime { stdout }
     }
 
-    pub fn execute(&mut self, chunk: &Chunk) -> Result<(), RuntimeError> {
-        let mut vm = VmState::new(chunk);
+    pub fn execute(
+        &mut self,
+        chunk: &Chunk,
+        strings: &mut StringTable,
+    ) -> Result<(), RuntimeError> {
+        let mut vm = VmState::new(chunk, strings);
         self.run(&mut vm)
     }
 
@@ -146,7 +154,8 @@ impl<'io> Runtime<'io> {
             // size of the last instruction.
             let instruction = unsafe { decode(vm.ip) };
 
-            #[cfg(trace)] {
+            #[cfg(feature = "trace")]
+            {
                 use crate::disassemble;
                 disassemble::stack(&vm.stack);
                 disassemble::instruction(vm.chunk, vm.offset(), &instruction);
@@ -155,8 +164,8 @@ impl<'io> Runtime<'io> {
             use Instruction::*;
             use Value::*;
             match instruction {
-                False            => vm.stack.push(Boolean(false)),
-                True             => vm.stack.push(Boolean(true)),
+                False => vm.stack.push(Boolean(false)),
+                True => vm.stack.push(Boolean(true)),
                 Instruction::Nil => vm.stack.push(Value::Nil),
                 Constant { address } => {
                     let constant = vm.constant_at(address).clone();
@@ -164,8 +173,8 @@ impl<'io> Runtime<'io> {
                 }
                 DefineGlobal { address } => {
                     let global_name = match vm.constant_at(address) {
-                        Value::Ref(box RefType::String(s)) => s.clone(),
-                        _ => unreachable!("Non-string global name")
+                        String(sym) => vm.resolve_string(*sym).to_owned(),
+                        _ => unreachable!("Non-string global name"),
                     };
                     let value = vm.stack_pop();
                     vm.globals.insert(global_name, value);
@@ -175,20 +184,30 @@ impl<'io> Runtime<'io> {
                     let lhs = vm.stack_pop();
                     let result = match (lhs, rhs) {
                         (Number(a), Number(b)) => Number(a + b),
-                        (Ref(box RefType::String(s1)),
-                         Ref(box RefType::String(s2))) => Value::string(s1 + &s2),
-                        (lhs, rhs) => return Err(RuntimeError::BinaryOperatorNotApplicable {
-                            lhs, rhs, operator: '+', line: vm.line_number()
-                        })
+                        (String(sym1), String(sym2)) => {
+                            let str1 = vm.resolve_string(sym1);
+                            let str2 = vm.resolve_string(sym2);
+                            let cat = str1.to_owned() + str2;
+                            let sym = vm.strings.get_or_intern(cat);
+                            String(sym)
+                        }
+                        (lhs, rhs) => {
+                            return Err(RuntimeError::BinaryOperatorNotApplicable {
+                                lhs,
+                                rhs,
+                                operator: '+',
+                                line: vm.line_number(),
+                            })
+                        }
                     };
                     vm.stack.push(result);
                 }
-                Divide   => binary_operator!(vm, /, Number -> Number),
+                Divide => binary_operator!(vm, /, Number -> Number),
                 Multiply => binary_operator!(vm, *, Number -> Number),
                 Subtract => binary_operator!(vm, -, Number -> Number),
-                Greater  => binary_operator!(vm, >, Number -> Boolean),
-                Less     => binary_operator!(vm, <, Number -> Boolean),
-                Equal    => {
+                Greater => binary_operator!(vm, >, Number -> Boolean),
+                Less => binary_operator!(vm, <, Number -> Boolean),
+                Equal => {
                     let b = vm.stack_pop();
                     let a = vm.stack_pop();
                     vm.stack.push(Boolean(a == b));
@@ -201,21 +220,21 @@ impl<'io> Runtime<'io> {
                         return Err(RuntimeError::UnaryOperatorNotApplicable {
                             operator: '-',
                             operand: value.clone(),
-                            line: vm.line_number()
-                        })
+                            line: vm.line_number(),
+                        });
                     }
                 }
                 Not => {
                     let value = vm.stack_peek();
                     *value = Boolean(value.is_falsey());
                 }
-                Pop => { vm.stack_pop(); }
+                Pop => {
+                    vm.stack_pop();
+                }
                 Print => {
                     println!("{}", vm.stack_pop());
                 }
-                Return => {
-                    return Ok(())
-                }
+                Return => return Ok(()),
             }
             // Safety: Safe as long as the instruction stream is well
             // formed and the underlying vector doesn't change.
@@ -230,13 +249,14 @@ pub(crate) unsafe fn decode(address: *const u8) -> Instruction {
     //        as long as we keep the chunk writing interface typesafe.
     let opcode = OpCode::try_from(*address).expect("Invalid opcode");
 
+    #[rustfmt::skip]
     match opcode {
         OpCode::Constant => Instruction::Constant {
             // Safety: Safe as long as the instruction stream is well formed.
-            address: ConstantAddr(*address.add(1))
+            address: ConstantAddr(*address.add(1)),
         },
         OpCode::DefineGlobal => Instruction::DefineGlobal {
-            address: ConstantAddr(*address.add(1))
+            address: ConstantAddr(*address.add(1)),
         },
         OpCode::Add      => Instruction::Add,
         OpCode::Divide   => Instruction::Divide,

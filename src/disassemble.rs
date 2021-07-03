@@ -1,10 +1,9 @@
 use std::ops::Range;
 
 use crate::{
-    bytecode::{Chunk, OpCode, Instruction},
+    bytecode::{Chunk, Instruction, OpCode},
+    disassemble, runtime,
     value::Value,
-    runtime,
-    disassemble,
 };
 
 pub fn chunk(chunk: &Chunk, name: &str) {
@@ -24,7 +23,9 @@ pub fn chunk(chunk: &Chunk, name: &str) {
 }
 
 macro_rules! op_code {
-    ($instruction:tt) => { eprint!("{:?}", OpCode::$instruction) }
+    ($instruction:tt) => {
+        eprint!("{:?}", OpCode::$instruction)
+    };
 }
 
 pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
@@ -35,33 +36,39 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction) {
             let line_number = chunk.line_numbers[index].1;
             eprint!("{:#04x} {:4}  ", offset, line_number);
         }
-        Err(_) => eprint!("{:#04x}    |  ", offset)
+        Err(_) => eprint!("{:#04x}    |  ", offset),
     }
 
+    #[rustfmt::skip]
     match instruction {
         Constant { address } => {
             let constant = &chunk.constants[address.0 as usize];
             eprint!("{:?}  {:16}  '{}'", OpCode::Constant, address.0, constant);
-        },
+        }
         DefineGlobal { address } => {
             let global_name = &chunk.constants[address.0 as usize];
-            eprint!("{:?}  {:16}  '{}'", OpCode::DefineGlobal, address.0, global_name);
+            eprint!(
+                "{:?}  {:16}  '{}'",
+                OpCode::DefineGlobal,
+                address.0,
+                global_name
+            );
         }
-        Add      => op_code!(Add),
-        Divide   => op_code!(Divide),
-        Equal    => op_code!(Equal),
-        False    => op_code!(False),
-        Greater  => op_code!(Greater),
-        Less     => op_code!(Less),
+        Add =>      op_code!(Add),
+        Divide =>   op_code!(Divide),
+        Equal =>    op_code!(Equal),
+        False =>    op_code!(False),
+        Greater =>  op_code!(Greater),
+        Less =>     op_code!(Less),
         Multiply => op_code!(Multiply),
-        Negate   => op_code!(Negate),
-        Nil      => op_code!(Nil),
-        Not      => op_code!(Not),
-        Pop      => op_code!(Pop),
-        Print    => op_code!(Print),
-        Return   => op_code!(Return),
+        Negate =>   op_code!(Negate),
+        Nil =>      op_code!(Nil),
+        Not =>      op_code!(Not),
+        Pop =>      op_code!(Pop),
+        Print =>    op_code!(Print),
+        Return =>   op_code!(Return),
         Subtract => op_code!(Subtract),
-        True     => op_code!(True),
+        True =>     op_code!(True),
     }
     eprintln!();
 }

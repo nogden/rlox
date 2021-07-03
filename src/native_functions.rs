@@ -1,4 +1,4 @@
-use crate::interpreter::{Value, NativeError};
+use crate::interpreter::{NativeError, Value};
 
 use std::time::SystemTime;
 
@@ -8,10 +8,8 @@ pub fn elapsed_time(args: &Vec<Value>) -> Result<Value, NativeError> {
     }
 
     let now = match SystemTime::now().elapsed() {
-        Ok(duration) => {
-            duration.as_secs_f64()
-        }
-        Err(error) => return Err(NativeError::Failed(format!("{}", error)))
+        Ok(duration) => duration.as_secs_f64(),
+        Err(error) => return Err(NativeError::Failed(format!("{}", error))),
     };
 
     Ok(Value::Number(now))

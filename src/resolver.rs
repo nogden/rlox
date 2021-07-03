@@ -1,16 +1,14 @@
 use crate::{
-    parser::{Ast, ExprIndex, StmtIndex, Expression::*},
-    token::Token,
     error::ParseError,
+    parser::{Ast, ExprIndex, Expression::*, StmtIndex},
+    token::Token,
 };
 
 use std::collections::HashMap;
 
 pub type ReferenceTable = HashMap<ExprIndex, usize>;
 
-pub fn resolve_references<'s>(
-    ast: &Ast<'s>
-) -> Result<ReferenceTable, Vec<ParseError<'s>>> {
+pub fn resolve_references<'s>(ast: &Ast<'s>) -> Result<ReferenceTable, Vec<ParseError<'s>>> {
     let mut resolver = Resolver {
         scopes: Vec::new(),
         resolved: ReferenceTable::new(),
@@ -40,14 +38,25 @@ struct Resolver<'s> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum ScopeType { Global, Function, Constructor, Method }
+enum ScopeType {
+    Global,
+    Function,
+    Constructor,
+    Method,
+}
 
 #[derive(Clone, Copy, PartialEq)]
-enum ClassType { None, Class, SubClass }
+enum ClassType {
+    None,
+    Class,
+    SubClass,
+}
 
 impl<'s> Resolver<'s> {
     fn resolve_statement(
-        &mut self, statement: StmtIndex, ast: &Ast<'s>
+        &mut self,
+        statement: StmtIndex,
+        ast: &Ast<'s>,
     ) -> Result<(), ParseError<'s>> {
         use crate::parser::Statement::*;
 
@@ -70,7 +79,7 @@ impl<'s> Resolver<'s> {
                 if let Some(super_class) = optional_super_class {
                     if let Variable(super_name) = ast.expression(*super_class) {
                         if super_name.lexeme == name.lexeme {
-                            return Err(ParseError::InheritanceCycle(*super_name))
+                            return Err(ParseError::InheritanceCycle(*super_name));
                         }
                     }
                     self.class_type = ClassType::SubClass;
@@ -125,14 +134,12 @@ impl<'s> Resolver<'s> {
 
             Return(token, optional_expression) => {
                 if self.scope_type == ScopeType::Global {
-                    return Err(ParseError::TopLevelReturn(*token))
+                    return Err(ParseError::TopLevelReturn(*token));
                 }
 
                 if let Some(expression) = optional_expression {
                     if self.scope_type == ScopeType::Constructor {
-                        return Err(
-                            ParseError::ValueReturnedFromConstructor(*token)
-                        )
+                        return Err(ParseError::ValueReturnedFromConstructor(*token));
                     }
                     self.resolve_expression(*expression, ast)?;
                 }
@@ -156,7 +163,9 @@ impl<'s> Resolver<'s> {
     }
 
     fn resolve_expression(
-        &mut self, expression: ExprIndex, ast: &Ast<'s>
+        &mut self,
+        expression: ExprIndex,
+        ast: &Ast<'s>,
     ) -> Result<(), ParseError<'s>> {
         use crate::parser::Expression::*;
 
@@ -182,7 +191,7 @@ impl<'s> Resolver<'s> {
 
             Grouping(expr) => self.resolve_expression(*expr, ast)?,
 
-            Literal(_token_type) => { /* Nothing to resolve */ },
+            Literal(_token_type) => { /* Nothing to resolve */ }
 
             Logical(lhs, _token, rhs) => {
                 self.resolve_expression(*lhs, ast)?;
@@ -196,7 +205,7 @@ impl<'s> Resolver<'s> {
 
             SelfRef(keyword) => {
                 if self.class_type == ClassType::None {
-                    return Err(ParseError::SelfRefOutsideObject(*keyword))
+                    return Err(ParseError::SelfRefOutsideObject(*keyword));
                 }
 
                 self.resolve(expression, keyword);
@@ -204,7 +213,7 @@ impl<'s> Resolver<'s> {
 
             SuperRef(keyword, _method) => {
                 if self.class_type != ClassType::SubClass {
-                    return Err(ParseError::SuperOutsideSubClass(*keyword))
+                    return Err(ParseError::SuperOutsideSubClass(*keyword));
                 }
                 self.resolve(expression, keyword);
             }
@@ -215,7 +224,7 @@ impl<'s> Resolver<'s> {
                 if let Some(scope) = self.scopes.last() {
                     if let Some(initialised) = scope.get(identifier.lexeme) {
                         if !initialised {
-                            return Err(ParseError::RecursiveDefinition(*identifier))
+                            return Err(ParseError::RecursiveDefinition(*identifier));
                         }
                     }
                 }
@@ -232,7 +241,7 @@ impl<'s> Resolver<'s> {
         parameters: &Vec<Token<'s>>,
         body: &Vec<StmtIndex>,
         ast: &Ast<'s>,
-        fn_type: ScopeType
+        fn_type: ScopeType,
     ) -> Result<(), ParseError<'s>> {
         let enclosing_scope_type = self.scope_type;
         self.scope_type = fn_type;
@@ -255,7 +264,7 @@ impl<'s> Resolver<'s> {
     fn declare(&mut self, identifier: &Token<'s>) -> Result<(), ParseError<'s>> {
         if let Some(current_scope) = self.scopes.last_mut() {
             if current_scope.contains_key(identifier.lexeme) {
-                return Err(ParseError::Redeclaration(*identifier))
+                return Err(ParseError::Redeclaration(*identifier));
             }
             current_scope.insert(identifier.lexeme, false);
         }
@@ -273,7 +282,7 @@ impl<'s> Resolver<'s> {
         for (i, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(identifier.lexeme) {
                 self.resolved.insert(expression, i);
-                return
+                return;
             }
         }
 

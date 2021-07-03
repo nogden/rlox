@@ -72,7 +72,7 @@ impl Instruction {
         match self {
             Constant { .. } => 2,
             DefineGlobal { .. } => 2,
-            _ => 1
+            _ => 1,
         }
     }
 }
@@ -88,6 +88,7 @@ impl IncompleteChunk {
         use Instruction::*;
 
         self.record_line_number(line);
+        #[rustfmt::skip]
         match instruction {
             Constant { address } => {
                 self.code.push(OpCode::Constant.into());
@@ -131,7 +132,7 @@ impl IncompleteChunk {
         Chunk {
             code: self.code,
             constants: self.constants,
-            line_numbers: self.line_numbers
+            line_numbers: self.line_numbers,
         }
     }
 

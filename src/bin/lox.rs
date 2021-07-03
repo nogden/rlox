@@ -1,22 +1,18 @@
-use std::{
-    io::self,
-    io::prelude::*,
-    path::Path,
-};
-
-use rlox::{Status};
+use rlox::Status;
+use std::{io, io::prelude::*, path::Path};
 
 type ExitStatus = i32;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
+    #[rustfmt::skip]
     let exit_status = match args.as_slice() {
         [_]                         => repl(),
         [_, t] if t == "-t"         => slow_repl(),
         [_, script]                 => run_script(&script),
         [_, t, script] if t == "-t" => slow_run_script(&script),
-        _                           => {
+        _ => {
             println!("Usage: lox [-c] [script]");
             64
         }
@@ -39,7 +35,9 @@ fn slow_repl() -> ExitStatus {
     loop {
         print!("> ");
         io::stdout().flush().expect("Unable to flush stdout");
-        input_stream.read_line(&mut input).expect("Unable to read from stdin");
+        input_stream
+            .read_line(&mut input)
+            .expect("Unable to read from stdin");
         match lox.run(&path, &input) {
             Ok((result, status)) => {
                 if let Some(value) = result {
@@ -47,7 +45,7 @@ fn slow_repl() -> ExitStatus {
                 }
 
                 if let Status::Terminated(exit_status) = status {
-                    return exit_status
+                    return exit_status;
                 }
             }
             Err(error) => println!("{}", error),
@@ -65,7 +63,7 @@ fn slow_run_script<P: AsRef<Path>>(script_file: P) -> ExitStatus {
                 script_file.as_ref().display(),
                 error
             );
-            return 64
+            return 64;
         }
     };
 
@@ -73,7 +71,7 @@ fn slow_run_script<P: AsRef<Path>>(script_file: P) -> ExitStatus {
     let mut lox = rlox::Lox::new(stdout);
     match lox.run(script_file.as_ref(), &script) {
         Ok((_, Status::Terminated(exit_status))) => exit_status,
-        Ok(_)                                    => 0,
+        Ok(_) => 0,
         Err(error) => {
             println!("{}", error);
             65
@@ -95,7 +93,9 @@ fn repl() -> ExitStatus {
     loop {
         print!("> ");
         io::stdout().flush().expect("Unable to flush stdout");
-        input_stream.read_line(&mut input).expect("Unable to read from stdin");
+        input_stream
+            .read_line(&mut input)
+            .expect("Unable to read from stdin");
         if let Err(error) = vm.execute(&path, &input) {
             println!("{}", error);
         }
@@ -114,7 +114,7 @@ fn run_script<P: AsRef<Path>>(script_file: P) -> ExitStatus {
                 script_file.as_ref().display(),
                 error
             );
-            return 64
+            return 64;
         }
     };
 

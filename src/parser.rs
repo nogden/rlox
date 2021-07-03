@@ -95,16 +95,18 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 Err(error) => {
                     errors.push(error);
                     self.synchronise()
-                },
+                }
 
-                Ok(None) => if errors.is_empty() {
-                     return Ok(Ast {
-                        top_level_statements,
-                        statements: self.statements,
-                        expressions: self.expressions
-                    })
-                } else {
-                    return Err(errors)
+                Ok(None) => {
+                    if errors.is_empty() {
+                        return Ok(Ast {
+                            top_level_statements,
+                            statements: self.statements,
+                            expressions: self.expressions,
+                        });
+                    } else {
+                        return Err(errors);
+                    }
                 }
             }
         }
@@ -114,7 +116,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         match self.tokens.peek() {
             Some(Ok(token)) => Ok(Some(token)),
             Some(Err(error)) => Err(error.clone()),
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 
@@ -124,11 +126,13 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 self.advance();
                 Ok(true)
             }
-            _ => Ok(false)
+            _ => Ok(false),
         }
     }
 
-    fn advance(&mut self) { let _ = self.tokens.next(); }
+    fn advance(&mut self) {
+        let _ = self.tokens.next();
+    }
 
     fn consume(&mut self, expected: TokenType) -> Result<Token<'s>, ParseError<'s>> {
         match self.peek()? {
@@ -136,13 +140,14 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 let found = *token;
                 self.advance();
                 Ok(found)
-            },
+            }
 
             Some(other_token) => Err(UnexpectedToken {
-                token: *other_token, expected: expected.symbol()
+                token: *other_token,
+                expected: expected.symbol(),
             }),
 
-            None => unreachable!("Should have hit Eof (in consume)")
+            None => unreachable!("Should have hit Eof (in consume)"),
         }
     }
 
@@ -152,29 +157,30 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
             // We accept EOF as the final statement terminator, but don't
             // consume it as it needs to be present to stop the parsing loop.
-            Err(UnexpectedToken { token: token @ Token { token_type: Eof, ..}, .. })
-                => Ok(token),
+            Err(UnexpectedToken { token, .. }) if token.token_type == Eof => Ok(token),
 
-            Err(unexpected_token) => Err(unexpected_token)
+            Err(unexpected_token) => Err(unexpected_token),
         }
     }
 
     fn synchronise(&mut self) {
         loop {
             match self.peek() {
-                Ok(Some(Token { token_type: Semicolon, ..}))
-                    => return self.advance(),
+                Ok(Some(Token {
+                    token_type: Semicolon,
+                    ..
+                })) => return self.advance(),
 
                 Ok(Some(Token {
-                    token_type: Class | Fun | Var | For | If | While |
-                                Print | Return | Eof, ..
+                    token_type: Class | Fun | Var | For | If | While | Print | Return | Eof,
+                    ..
                 })) => return,
 
                 Ok(Some(_)) => self.advance(),
 
                 Ok(None) => return,
 
-                Err(_) => return self.advance() // TODO(nick): Is this right?
+                Err(_) => return self.advance(), // TODO(nick): Is this right?
             }
         }
     }
@@ -191,7 +197,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         ExprIndex(index)
     }
 
-    fn declaration(& mut self) -> StmtResult<'s> {
+    fn declaration(&mut self) -> StmtResult<'s> {
         if self.match_token(Var)? {
             self.var_declaration()
         } else if self.match_token(Fun)? {
@@ -221,12 +227,12 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         self.consume(LeftParen)?;
 
         let mut parameters = Vec::new();
-        if ! self.match_token(RightParen)? {
+        if !self.match_token(RightParen)? {
             loop {
                 let parameter_name = self.consume(Identifier)?;
                 parameters.push(parameter_name);
 
-                if ! self.match_token(Comma)? {
+                if !self.match_token(Comma)? {
                     break;
                 }
             }
@@ -250,50 +256,55 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         self.consume(LeftBrace)?;
 
         let mut methods = Vec::new();
-        while ! self.match_token(RightBrace)? {
+        while !self.match_token(RightBrace)? {
             methods.push(self.function()?);
         }
 
-        Ok(Some(self.add_stmt(Statement::Class(name, super_class, methods))))
+        Ok(Some(self.add_stmt(Statement::Class(
+            name,
+            super_class,
+            methods,
+        ))))
     }
 
     fn statement(&mut self) -> StmtResult<'s> {
+        #[rustfmt::skip]
         match self.peek()? {
-            Some(Token { token_type: If, .. }) => {
+            Some(token) if token.token_type == If => {
                 self.advance();
                 self.if_statement()
             },
 
-            Some(Token { token_type: For, .. }) => {
+            Some(token) if token.token_type == For => {
                 self.advance();
                 self.for_statement()
             },
 
-            Some(Token { token_type: While, .. }) => {
+            Some(token) if token.token_type == While => {
                 self.advance();
                 self.while_statement()
             }
 
-            Some(token @ Token { token_type: Print, .. }) => {
+            Some(token) if token.token_type == Print => {
                 let keyword = *token;
                 self.advance();
                 self.print_statement(keyword)
             },
 
-            Some(token @ Token { token_type: Return, .. }) => {
+            Some(token) if token.token_type == Return => {
                 let keyword = *token;
                 self.advance();
                 self.return_statement(keyword)
             },
 
-            Some(token @ Token { token_type: LeftBrace, .. }) => {
+            Some(token) if token.token_type == LeftBrace => {
                 let opening_brace = *token;
                 self.advance();
                 let block_contents = self.block(opening_brace)?;
                 Ok(Some(self.add_stmt(Statement::Block(block_contents))))
             },
 
-            Some(Token { token_type: Eof, .. }) => Ok(None),
+            Some(token) if token.token_type == Eof => Ok(None),
 
             _ => self.expression_statement(),
         }
@@ -313,9 +324,11 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             None
         };
 
-        Ok(Some(self.add_stmt(
-            Statement::If(condition, then_branch, else_branch))
-        ))
+        Ok(Some(self.add_stmt(Statement::If(
+            condition,
+            then_branch,
+            else_branch,
+        ))))
     }
 
     fn for_statement(&mut self) -> StmtResult<'s> {
@@ -328,13 +341,16 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         };
 
         let condition = match self.peek()? {
-            Some(token @ Token { token_type: Semicolon, .. }) => {
+            Some(token) if token.token_type == Semicolon => {
                 // Empty conditions are always true
-                let literal_true = Token { token_type: True, ..*token };
+                let literal_true = Token {
+                    token_type: True,
+                    ..*token
+                };
                 self.advance();
                 self.add_expr(Literal(literal_true))
             }
-            _ => self.expression()?
+            _ => self.expression()?,
         };
 
         let terminator = self.consume(Semicolon)?;
@@ -393,26 +409,26 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             Some(expression)
         };
 
-        Ok(Some(self.add_stmt(Statement::Return(keyword, return_value))))
+        Ok(Some(
+            self.add_stmt(Statement::Return(keyword, return_value)),
+        ))
     }
 
-    fn block(
-        &mut self, opening_brace: Token<'s>
-    ) -> Result<Vec<StmtIndex>, ParseError<'s>> {
+    fn block(&mut self, opening_brace: Token<'s>) -> Result<Vec<StmtIndex>, ParseError<'s>> {
         let mut statements = Vec::new();
 
         loop {
             match self.peek()? {
-                Some(Token { token_type: RightBrace, ..}) => {
+                Some(token) if token.token_type == RightBrace => {
                     self.advance();
-                    return Ok(statements)
-                },
-                Some(eof @ Token { token_type: Eof, .. }) => {
+                    return Ok(statements);
+                }
+                Some(token) if token.token_type == Eof => {
                     return Err(UnmatchedDelimiter {
                         opening_delimiter: opening_brace,
-                        token: *eof
+                        token: *token,
                     })
-                },
+                }
                 _ => {
                     if let Some(statement) = self.declaration()? {
                         statements.push(statement);
@@ -426,7 +442,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         let expression = self.expression()?;
         let terminator = self.consume_terminator()?;
 
-        Ok(Some(self.add_stmt(Statement::Expression(expression, terminator))))
+        Ok(Some(
+            self.add_stmt(Statement::Expression(expression, terminator)),
+        ))
     }
 
     fn expression(&mut self) -> Result<ExprIndex, ParseError<'s>> {
@@ -441,12 +459,9 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             let value = self.assignment()?;
 
             match self.expressions[expression.0] {
-                Variable(ident) =>
-                    return Ok(self.add_expr(Assign(ident, value))),
-                Access(object, field) =>
-                    return Ok(self.add_expr(Mutate(object, field, value))),
-                _ =>
-                    return Err(InvalidAssignmentTarget(assignment))
+                Variable(ident) => return Ok(self.add_expr(Assign(ident, value))),
+                Access(object, field) => return Ok(self.add_expr(Mutate(object, field, value))),
+                _ => return Err(InvalidAssignmentTarget(assignment)),
             }
         }
 
@@ -478,9 +493,10 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn equality(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let mut expression = self.comparison()?;
 
-        while let Some(token @ Token {
-            token_type: EqualEqual | BangEqual, ..
-        }) = self.peek()? {
+        #[rustfmt::skip]
+        while let Some(
+            token @ Token { token_type: EqualEqual | BangEqual, ..}
+        ) = self.peek()? {
             let operator = *token;
             self.advance();
             let right = self.comparison()?;
@@ -493,9 +509,10 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn comparison(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let mut expr = self.addition()?;
 
-        while let Some(token @ Token {
-            token_type: Greater | GreaterEqual | Less | LessEqual, ..
-        }) = self.peek()? {
+        #[rustfmt::skip]
+        while let Some(
+            token @ Token { token_type: Greater | GreaterEqual | Less | LessEqual, .. }
+        ) = self.peek()? {
             let operator = *token;
             self.advance();
             let right = self.addition()?;
@@ -508,9 +525,10 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn addition(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let mut expr = self.multiplication()?;
 
-        while let Some(token @ Token {
-            token_type: Minus | Plus, ..
-        }) = self.peek()? {
+        #[rustfmt::skip]
+        while let Some(
+            token @ Token { token_type: Minus | Plus, .. }
+        ) = self.peek()? {
             let operator = *token;
             self.advance();
             let right = self.multiplication()?;
@@ -523,9 +541,10 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     fn multiplication(&mut self) -> Result<ExprIndex, ParseError<'s>> {
         let mut expr = self.unary()?;
 
-        while let Some(token @ Token {
-            token_type: Slash | Star, ..
-        }) = self.peek()? {
+        #[rustfmt::skip]
+        while let Some(
+            token @ Token { token_type: Slash | Star, .. }
+        ) = self.peek()? {
             let operator = *token;
             self.advance();
             let right = self.unary()?;
@@ -536,13 +555,14 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn unary(&mut self) -> Result<ExprIndex, ParseError<'s>> {
-        if let Some(token @ Token {
-            token_type: Bang | Minus, ..
-        }) = self.peek()? {
+        #[rustfmt::skip]
+        if let Some(
+            token @ Token { token_type: Bang | Minus, ..}
+        ) = self.peek()? {
             let operator = *token;
             self.advance();
             let right = self.unary()?;
-            return Ok(self.add_expr(Unary(operator, right)))
+            return Ok(self.add_expr(Unary(operator, right)));
         }
 
         self.call()
@@ -565,9 +585,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
         Ok(expression)
     }
 
-    fn finish_call(
-        &mut self, callee: ExprIndex
-    ) -> Result<ExprIndex, ParseError<'s>> {
+    fn finish_call(&mut self, callee: ExprIndex) -> Result<ExprIndex, ParseError<'s>> {
         let mut arguments = Vec::new();
 
         let closing_paren = if let Ok(paren) = self.consume(RightParen) {
@@ -576,7 +594,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
             loop {
                 arguments.push(self.expression()?);
 
-                if ! self.match_token(Comma)? {
+                if !self.match_token(Comma)? {
                     break;
                 }
             }
@@ -587,6 +605,7 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
     }
 
     fn primary(&mut self) -> Result<ExprIndex, ParseError<'s>> {
+        #[rustfmt::skip]
         match self.peek()? {
             Some(token @ Token {
                 token_type: False | True | Nil | Number(_) | String(_), ..
@@ -596,37 +615,38 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
                 Ok(self.add_expr(Literal(literal)))
             }
 
-            Some(token @ Token { token_type: LeftParen, .. }) => {
+            Some(token) if token.token_type == LeftParen => {
                 let opening_delimiter = *token;
                 self.advance();
                 let expr = self.expression()?;
                 if let Err(UnexpectedToken {
-                    token: unexpected_token, ..
+                    token: unexpected_token,
+                    ..
                 }) = self.consume(RightParen) {
                     Err(UnmatchedDelimiter {
-                        token: unexpected_token, opening_delimiter
+                        token: unexpected_token,
+                        opening_delimiter,
                     })
                 } else {
                     Ok(self.add_expr(Grouping(expr)))
                 }
             }
 
-            Some(token @ Token { token_type: This, .. }) => {
+            Some(token) if token.token_type == This => {
                 let keyword = *token;
                 self.advance();
                 Ok(self.add_expr(SelfRef(keyword)))
             }
 
-            Some(token @ Token { token_type: Super, .. }) => {
+            Some(token) if token.token_type == Super => {
                 let keyword = *token;
                 self.advance();
                 self.consume(Dot)?;
                 let method = self.consume(Identifier)?;
                 Ok(self.add_expr(SuperRef(keyword, method)))
-
             }
 
-            Some(token @ Token { token_type: Identifier, .. }) => {
+            Some(token) if token.token_type == Identifier => {
                 let ident = *token;
                 self.advance();
                 Ok(self.add_expr(Variable(ident)))
@@ -634,10 +654,10 @@ impl<'s, I: Iterator<Item = Result<Token<'s>, ParseError<'s>>>> Parser<'s, I> {
 
             Some(token) => Err(UnexpectedToken {
                 token: *token,
-                expected: "expression"
+                expected: "expression",
             }),
 
-            None => unreachable!("Should have hit Eof (in primary)")
+            None => unreachable!("Should have hit Eof (in primary)"),
         }
     }
 }
@@ -647,7 +667,7 @@ impl<'s> fmt::Display for Ast<'s> {
         fn print_expression<'s>(
             f: &mut fmt::Formatter,
             expression: ExprIndex,
-            ast: &Ast
+            ast: &Ast,
         ) -> fmt::Result {
             match ast.expression(expression) {
                 Access(object, field) => {
@@ -693,7 +713,7 @@ impl<'s> fmt::Display for Ast<'s> {
                     True => write!(f, "true"),
                     False => write!(f, "false"),
                     _ => write!(f, "<unprintable>"),
-                }
+                },
 
                 Logical(left, operator, right) => {
                     write!(f, "({} ", operator)?;
@@ -725,9 +745,7 @@ impl<'s> fmt::Display for Ast<'s> {
             }
         }
 
-        fn print_statement(
-            f: &mut fmt::Formatter, statement: StmtIndex, ast: &Ast
-        ) -> fmt::Result {
+        fn print_statement(f: &mut fmt::Formatter, statement: StmtIndex, ast: &Ast) -> fmt::Result {
             use Statement::*;
 
             match ast.statement(statement) {
@@ -747,9 +765,7 @@ impl<'s> fmt::Display for Ast<'s> {
                     write!(f, ")")
                 }
 
-                Expression(expression, _terminator) => {
-                    print_expression(f, *expression, ast)
-                }
+                Expression(expression, _terminator) => print_expression(f, *expression, ast),
 
                 Fun(name, parameters, body) => {
                     write!(f, "(defn {} [", name)?;

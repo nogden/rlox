@@ -1,12 +1,8 @@
-use std::{
-    iter,
-    slice::SliceIndex,
-    str::CharIndices,
-};
+use std::{iter, slice::SliceIndex, str::CharIndices};
 
 use crate::{
-    token::{TokenType, Token},
     error::{ParseError, ParseError::*},
+    token::{Token, TokenType},
 };
 
 #[derive(Clone)]
@@ -27,7 +23,7 @@ impl Scanner for str {
             source_code: self,
             chars: self.char_indices().peekable(),
             current_line: 1,
-            ended: false
+            ended: false,
         }
     }
 }
@@ -40,12 +36,14 @@ impl<'s> Tokens<'s> {
     }
 
     fn found(
-        &self, token: TokenType<'s>, location: impl SliceIndex<str, Output=str>
+        &self,
+        token: TokenType<'s>,
+        location: impl SliceIndex<str, Output = str>,
     ) -> NextToken<'s> {
         Some(Ok(Token {
             token_type: token,
             lexeme: &self.source_code[location],
-            line: self.current_line
+            line: self.current_line,
         }))
     }
 
@@ -54,24 +52,22 @@ impl<'s> Tokens<'s> {
             Some((_, character)) if *character == expected => {
                 self.advance();
                 true
-            },
+            }
 
-            _ => false
+            _ => false,
         }
     }
 
     fn comment(&mut self) {
         while let Some((_, character)) = self.chars.peek() {
             if *character == '\n' {
-                break // Don't consume the newline, it will update current_line
+                break; // Don't consume the newline, it will update current_line
             }
             self.advance();
         }
     }
 
-    fn string(
-        &mut self, opening_quote: usize
-    ) -> Result<Token<'s>, ParseError<'s>> {
+    fn string(&mut self, opening_quote: usize) -> Result<Token<'s>, ParseError<'s>> {
         use TokenType::String;
         let start_line = self.current_line;
         let first_char = opening_quote + 1;
@@ -81,7 +77,7 @@ impl<'s> Tokens<'s> {
                 '\n' => self.current_line += 1,
                 '"' => {
                     let closing_quote = *index;
-                    self.advance();  // Skip the closing '"'
+                    self.advance(); // Skip the closing '"'
                     let string = if first_char == closing_quote {
                         ""
                     } else {
@@ -90,9 +86,9 @@ impl<'s> Tokens<'s> {
                     return Ok(Token {
                         token_type: String(string),
                         lexeme: &self.source_code[opening_quote..=closing_quote],
-                        line: start_line
+                        line: start_line,
                     });
-                },
+                }
                 _ => { /* Include in string */ }
             }
             self.advance()
@@ -101,7 +97,7 @@ impl<'s> Tokens<'s> {
         Err(UnterminatedString(Token {
             token_type: String(""),
             lexeme: &self.source_code[opening_quote..],
-            line: self.current_line
+            line: self.current_line,
         }))
     }
 
@@ -125,7 +121,7 @@ impl<'s> Tokens<'s> {
         }
 
         if has_fractional_part {
-            self.advance();  // Consume decimal point
+            self.advance(); // Consume decimal point
 
             while let Some((index, '0'..='9')) = self.chars.peek() {
                 last_numeral = *index;
@@ -134,7 +130,8 @@ impl<'s> Tokens<'s> {
         }
 
         let number: f64 = self.source_code[first_numeral..=last_numeral]
-            .parse().unwrap();
+            .parse()
+            .unwrap();
         self.found(Number(number), first_numeral..=last_numeral)
     }
 
@@ -147,7 +144,7 @@ impl<'s> Tokens<'s> {
                 last_char = *index;
                 self.advance()
             } else {
-                break
+                break;
             }
         }
 
@@ -162,6 +159,7 @@ impl<'s> Tokens<'s> {
     fn keyword(&self, identifier: &str) -> Option<TokenType<'s>> {
         use TokenType::*;
 
+        #[rustfmt::skip]
         match identifier {
             "and"    => Some(And),
             "class"  => Some(Class),
@@ -190,6 +188,7 @@ impl<'s> Iterator for Tokens<'s> {
     fn next(&mut self) -> Option<Self::Item> {
         use TokenType::*;
 
+        #[rustfmt::skip]
         while let Some((index, character)) = self.chars.next() {
             match character {
                 '{' => return self.found(LeftBrace, index..=index),
@@ -231,9 +230,7 @@ impl<'s> Iterator for Tokens<'s> {
                 '\n' => self.current_line += 1,
                 '"' => return Some(self.string(index)),
                 '0'..='9' => return self.number(index),
-                c if c == '_' || c.is_alphabetic()
-                    => return self.identifier(index),
-
+                c if c == '_' || c.is_alphabetic() => return self.identifier(index),
                 _ => return Some(Err(UnexpectedCharacter {
                     character: &self.source_code[index..=index],
                     line: self.current_line,
@@ -242,12 +239,12 @@ impl<'s> Iterator for Tokens<'s> {
         }
 
         // Eof is a fake token that we add it before terminating iteration
-        if ! self.ended {
+        if !self.ended {
             self.ended = true;
             Some(Ok(Token {
                 token_type: Eof,
                 lexeme: "EOF",
-                line: self.current_line
+                line: self.current_line,
             }))
         } else {
             None
