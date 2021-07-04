@@ -176,8 +176,12 @@ impl<'io> Runtime<'io> {
                         String(sym) => vm.resolve_string(*sym).to_owned(),
                         _ => unreachable!("Non-string global name"),
                     };
-                    let value = vm.stack_pop();
+                    // Only pop after adding to globals map to ensure
+                    // that the value is still available in the event
+                    // of a GC while this is happening.
+                    let value = vm.stack_peek().clone(); // Cheap, always an interend string
                     vm.globals.insert(global_name, value);
+                    vm.stack_pop();
                 }
                 Add => {
                     let rhs = vm.stack_pop();
