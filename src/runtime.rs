@@ -232,7 +232,13 @@ impl<'io> Runtime<'io> {
                     vm.stack_pop();
                 }
                 Print => {
-                    println!("{}", vm.stack_pop());
+                    let value = vm.stack_pop();
+                    if let Value::String(sym) = value {
+                        let string = vm.resolve_string(sym);
+                        println!("{}", string);
+                    } else {
+                        println!("{}", value);
+                    }
                 }
                 Return => return Ok(()),
             }
