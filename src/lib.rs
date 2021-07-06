@@ -51,10 +51,8 @@ impl<'io> VirtualMachine<'io> {
         use scanner::Scanner;
 
         let ast = parser::parse(source_code.tokens())?;
-
-        let mut strings = value::StringTable::new();
-        let bytecode = compiler::compile(&ast, &mut strings)?;
-        Ok(self.runtime.execute(&bytecode, &mut strings)?)
+        let bytecode = compiler::compile(&ast, &mut self.runtime.strings)?;
+        Ok(self.runtime.execute(&bytecode)?)
     }
 }
 

@@ -8,6 +8,15 @@ use thiserror::Error;
 #[derive(Clone)]
 pub(crate) struct Runtime<'io> {
     stdout: &'io dyn io::Write,
+    pub(crate) globals: HashMap<String, Value>,
+    pub(crate) strings: StringTable,
+}
+
+impl<'io> Runtime<'io> {
+    #[inline]
+    fn resolve_string(&self, sym: usize) -> &str {
+        self.strings.resolve(sym).expect("Missing interned string")
+    }
 }
 
 #[derive(Clone, Debug, Error)]
@@ -26,11 +35,14 @@ pub enum RuntimeError {
         operand: Value,
         line: usize,
     },
+
+    #[error("(line {line}): Undefined variable '{var_name}'")]
+    UndefinedVariable { var_name: String, line: usize },
 }
 
 const STACK_SIZE: usize = 256;
 
-pub(crate) struct VmState<'c, 'st> {
+pub(crate) struct VmState<'c> {
     ip: *const u8,
     end_of_code: *const u8, // One past chunk end.
 
@@ -38,20 +50,16 @@ pub(crate) struct VmState<'c, 'st> {
     pub(crate) chunk: &'c Chunk,
 
     stack: Vec<Value>,
-    globals: HashMap<String, Value>,
-    strings: &'st mut StringTable,
 }
 
-impl<'c, 'st> VmState<'c, 'st> {
-    fn new(chunk: &'c Chunk, strings: &'st mut StringTable) -> VmState<'c, 'st> {
+impl<'c> VmState<'c> {
+    fn new(chunk: &'c Chunk) -> VmState<'c> {
         let Range { start, end } = chunk.code.as_ptr_range();
         VmState {
             ip: start,
             end_of_code: end,
             chunk,
             stack: Vec::with_capacity(STACK_SIZE),
-            globals: HashMap::default(),
-            strings,
         }
     }
 
@@ -87,11 +95,6 @@ impl<'c, 'st> VmState<'c, 'st> {
     }
 
     #[inline]
-    fn resolve_string(&self, sym: usize) -> &str {
-        self.strings.resolve(sym).expect("Missing interned string")
-    }
-
-    #[inline]
     fn stack_pop(&mut self) -> Value {
         self.stack.pop().expect("Popped empty stack")
     }
@@ -122,15 +125,15 @@ macro_rules! binary_operator {
 
 impl<'io> Runtime<'io> {
     pub fn new(stdout: &'io dyn io::Write) -> Runtime<'io> {
-        Runtime { stdout }
+        Runtime {
+            stdout,
+            globals: HashMap::new(),
+            strings: StringTable::new(),
+        }
     }
 
-    pub fn execute(
-        &mut self,
-        chunk: &Chunk,
-        strings: &mut StringTable,
-    ) -> Result<(), RuntimeError> {
-        let mut vm = VmState::new(chunk, strings);
+    pub fn execute(&mut self, chunk: &Chunk) -> Result<(), RuntimeError> {
+        let mut vm = VmState::new(chunk);
         self.run(&mut vm)
     }
 
@@ -158,7 +161,7 @@ impl<'io> Runtime<'io> {
             {
                 use crate::disassemble;
                 disassemble::stack(&vm.stack);
-                disassemble::instruction(&vm.chunk, vm.offset(), &instruction, vm.strings);
+                disassemble::instruction(&vm.chunk, vm.offset(), &instruction, &self.strings);
             }
 
             use Instruction::*;
@@ -173,15 +176,29 @@ impl<'io> Runtime<'io> {
                 }
                 DefineGlobal { address } => {
                     let global_name = match vm.constant_at(address) {
-                        String(sym) => vm.resolve_string(*sym).to_owned(),
+                        String(sym) => self.resolve_string(*sym).to_owned(),
                         _ => unreachable!("Non-string global name"),
                     };
                     // Only pop after adding to globals map to ensure
                     // that the value is still available in the event
                     // of a GC while this is happening.
                     let value = vm.stack_peek().clone(); // Cheap, always an interend string
-                    vm.globals.insert(global_name, value);
+                    self.globals.insert(global_name, value);
                     vm.stack_pop();
+                }
+                ResolveGlobal { address } => {
+                    let global_name = match vm.constant_at(address) {
+                        String(sym) => self.resolve_string(*sym).to_owned(),
+                        _ => unreachable!("Non-string global name"),
+                    };
+                    if let Some(value) = self.globals.get(&global_name) {
+                        vm.stack.push(value.clone());
+                    } else {
+                        return Err(RuntimeError::UndefinedVariable {
+                            var_name: global_name,
+                            line: vm.line_number(),
+                        });
+                    }
                 }
                 Add => {
                     let rhs = vm.stack_pop();
@@ -189,10 +206,10 @@ impl<'io> Runtime<'io> {
                     let result = match (lhs, rhs) {
                         (Number(a), Number(b)) => Number(a + b),
                         (String(sym1), String(sym2)) => {
-                            let str1 = vm.resolve_string(sym1);
-                            let str2 = vm.resolve_string(sym2);
+                            let str1 = self.resolve_string(sym1);
+                            let str2 = self.resolve_string(sym2);
                             let cat = str1.to_owned() + str2;
-                            let sym = vm.strings.get_or_intern(cat);
+                            let sym = self.strings.get_or_intern(cat);
                             String(sym)
                         }
                         (lhs, rhs) => {
@@ -238,7 +255,7 @@ impl<'io> Runtime<'io> {
                 Print => {
                     let value = vm.stack_pop();
                     if let Value::String(sym) = value {
-                        let string = vm.resolve_string(sym);
+                        let string = self.resolve_string(sym);
                         println!("{}", string);
                     } else {
                         println!("{}", value);
@@ -266,6 +283,9 @@ pub(crate) unsafe fn decode(address: *const u8) -> Instruction {
             address: ConstantAddr(*address.add(1)),
         },
         OpCode::DefineGlobal => Instruction::DefineGlobal {
+            address: ConstantAddr(*address.add(1)),
+        },
+        OpCode::ResolveGlobal => Instruction::ResolveGlobal {
             address: ConstantAddr(*address.add(1)),
         },
         OpCode::Add      => Instruction::Add,

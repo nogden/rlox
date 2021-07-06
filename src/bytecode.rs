@@ -18,6 +18,7 @@ pub enum Instruction {
     Not,
     Pop,
     Print,
+    ResolveGlobal { address: ConstantAddr },
     Return,
     Subtract,
     True,
@@ -40,6 +41,7 @@ pub enum OpCode {
     Not,
     Pop,
     Print,
+    ResolveGlobal,
     Return,
     Subtract,
     True,
@@ -72,6 +74,7 @@ impl Instruction {
         match self {
             Constant { .. } => 2,
             DefineGlobal { .. } => 2,
+            ResolveGlobal { .. } => 2,
             _ => 1,
         }
     }
@@ -97,6 +100,10 @@ impl IncompleteChunk {
             }
             DefineGlobal { address } => {
                 self.code.push(OpCode::DefineGlobal.into());
+                self.code.push(address.0);
+            }
+            ResolveGlobal { address } => {
+                self.code.push(OpCode::ResolveGlobal.into());
                 self.code.push(address.0);
             }
             Add      => self.code.push(OpCode::Add.into()),

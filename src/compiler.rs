@@ -146,6 +146,15 @@ impl<'st> Compiler<'st> {
                     _ => unreachable!(),
                 }
             }
+
+            Variable(token) => {
+                let sym = self.strings.get_or_intern(token.lexeme);
+                let address = self
+                    .bytecode
+                    .add_constant(Value::String(sym))
+                    .ok_or(CompileError::TooManyConstants(*token))?;
+                self.bytecode.write(&ResolveGlobal { address }, token.line)
+            }
             _ => todo!(),
         }
 

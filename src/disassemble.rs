@@ -58,6 +58,15 @@ pub fn instruction(chunk: &Chunk, offset: usize, instruction: &Instruction, stri
                 eprint!("{:?}  {:16}  '{}'", OpCode::DefineGlobal, address.0, global);
             }
         }
+        ResolveGlobal { address } => {
+            let global = &chunk.constants[address.0 as usize];
+            if let Value::String(sym) = global {
+                let string = strings.resolve(*sym).expect("Missing string");
+                eprint!("{:?}  {:16}  '{}'", OpCode::ResolveGlobal, address.0, string);
+            } else {
+                eprint!("{:?}  {:16}  '{}'", OpCode::ResolveGlobal, address.0, global);
+            }
+        }
         Add =>      op_code!(Add),
         Divide =>   op_code!(Divide),
         Equal =>    op_code!(Equal),
